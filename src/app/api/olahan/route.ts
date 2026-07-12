@@ -42,7 +42,7 @@ export async function GET(request: Request) {
             c.name as customer_name,
             c.whatsapp_number,
             c.desa,
-            GROUP_CONCAT(oi.product_name SEPARATOR ', ') as product_names,
+            oi.product_names,
             s.courier_name,
             s.courier_service,
             s.tracking_number as resi,
@@ -54,11 +54,14 @@ export async function GET(request: Request) {
             END as source_label
         FROM orders o
         LEFT JOIN customers c ON o.customer_id = c.id
-        LEFT JOIN order_items oi ON o.id = oi.order_id
+        LEFT JOIN (
+          SELECT order_id, GROUP_CONCAT(product_name SEPARATOR ', ') as product_names
+          FROM order_items
+          GROUP BY order_id
+        ) oi ON o.id = oi.order_id
         LEFT JOIN payments p ON o.id = p.order_id
         LEFT JOIN shipments s ON o.id = s.order_id
         WHERE (p.payment_method IS NULL OR p.payment_method != 'bank_transfer' OR p.payment_status = 'paid')
-        GROUP BY o.id
         
         UNION ALL
 
@@ -73,7 +76,7 @@ export async function GET(request: Request) {
             c.name as customer_name,
             c.whatsapp_number,
             c.desa,
-            GROUP_CONCAT(oi.product_name SEPARATOR ', ') as product_names,
+            oi.product_names,
             s.courier_name,
             s.courier_service,
             s.tracking_number as resi,
@@ -82,11 +85,14 @@ export async function GET(request: Request) {
             'CSO' as source_label
         FROM orders_cso o
         LEFT JOIN customers c ON o.customer_id = c.id
-        LEFT JOIN order_items_cso oi ON o.id = oi.order_id
+        LEFT JOIN (
+          SELECT order_id, GROUP_CONCAT(product_name SEPARATOR ', ') as product_names
+          FROM order_items_cso
+          GROUP BY order_id
+        ) oi ON o.id = oi.order_id
         LEFT JOIN payments_cso p ON o.id = p.order_id
         LEFT JOIN shipments_cso s ON o.id = s.order_id
         WHERE (p.payment_method IS NULL OR p.payment_method != 'bank_transfer' OR p.payment_status = 'paid')
-        GROUP BY o.id
         
         UNION ALL
         
@@ -101,7 +107,7 @@ export async function GET(request: Request) {
             c.name as customer_name,
             c.whatsapp_number,
             c.desa,
-            GROUP_CONCAT(oi.product_name SEPARATOR ', ') as product_names,
+            oi.product_names,
             s.courier_name,
             s.courier_service,
             s.tracking_number as resi,
@@ -110,11 +116,14 @@ export async function GET(request: Request) {
             'CRM' as source_label
         FROM orders_crm o
         LEFT JOIN customers c ON o.customer_id = c.id
-        LEFT JOIN order_items_crm oi ON o.id = oi.order_id
+        LEFT JOIN (
+          SELECT order_id, GROUP_CONCAT(product_name SEPARATOR ', ') as product_names
+          FROM order_items_crm
+          GROUP BY order_id
+        ) oi ON o.id = oi.order_id
         LEFT JOIN payments_crm p ON o.id = p.order_id
         LEFT JOIN shipments_crm s ON o.id = s.order_id
         WHERE (p.payment_method IS NULL OR p.payment_method != 'bank_transfer' OR p.payment_status = 'paid')
-        GROUP BY o.id
       ) as combined_orders
       WHERE 1=1 ${conditionQuery}
       ORDER BY created_at DESC
