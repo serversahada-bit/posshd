@@ -96,6 +96,24 @@ export default function OlahanPage() {
     return () => window.clearTimeout(timer);
   }, [fetchData]);
 
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void fetchData();
+      }
+    };
+
+    const intervalId = window.setInterval(refreshIfVisible, 15000);
+    window.addEventListener('focus', refreshIfVisible);
+    document.addEventListener('visibilitychange', refreshIfVisible);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', refreshIfVisible);
+      document.removeEventListener('visibilitychange', refreshIfVisible);
+    };
+  }, [fetchData]);
+
   useSocketEvent('NEW_OLAHAN', () => {
     void fetchData();
   });
@@ -616,3 +634,4 @@ export default function OlahanPage() {
     </div>
   );
 }
+

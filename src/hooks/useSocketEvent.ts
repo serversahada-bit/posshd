@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { getSocket } from '@/lib/socket';
 
-export const useSocketEvent = (eventName: string, callback: (data?: any) => void) => {
+export const useSocketEvent = (eventName: string, callback: (data?: unknown) => void) => {
   const savedCallback = useRef(callback);
 
   useEffect(() => {
@@ -12,8 +12,11 @@ export const useSocketEvent = (eventName: string, callback: (data?: any) => void
 
   useEffect(() => {
     const socket = getSocket();
+    if (!socket) {
+      return;
+    }
     
-    const listener = (data?: any) => {
+    const listener = (data?: unknown) => {
       if (savedCallback.current) {
         savedCallback.current(data);
       }
