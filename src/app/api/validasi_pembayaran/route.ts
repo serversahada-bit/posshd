@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { emitEvent } from '@/lib/socket';
+import { emitEvent } from '@/lib/socket-server';
 
 
 export async function GET(request: NextRequest) {
@@ -159,3 +159,4 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: 'error', message: error.message }, { status: 500 });
   }
 }
+

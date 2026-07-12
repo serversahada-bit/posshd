@@ -4,7 +4,7 @@ import { Prisma, orders_cso_order_status, orders_crm_order_status, orders_order_
 import { Buffer } from 'node:buffer';
 
 import prisma from '@/lib/db';
-import { emitEvent } from '@/lib/socket';
+import { emitEvent } from '@/lib/socket-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -183,3 +183,4 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: 'error', message: error instanceof Error ? error.message : 'Gagal memproses file status' }, { status: 500 });
   }
 }
+

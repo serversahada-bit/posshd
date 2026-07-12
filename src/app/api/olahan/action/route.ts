@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { emitEvent } from '@/lib/socket';
+import { emitEvent } from '@/lib/socket-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -143,3 +143,4 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: 'error', message: error.message }, { status: 500 });
   }
 }
+

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Swal from 'sweetalert2';
 import { Plus, Edit2, Trash2, Image as ImageIcon, X, Check } from 'lucide-react';
 import Image from 'next/image';
+import { useSocketEvent } from '@/hooks/useSocketEvent';
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<any[]>([]);
@@ -344,3 +345,4 @@ export default function ProductsPage() {
     </div>
   );
 }
+

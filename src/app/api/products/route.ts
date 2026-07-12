@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { emitEvent } from '@/lib/socket';
+import { emitEvent } from '@/lib/socket-server';
 import { products_status } from '@prisma/client';
 import { writeFile, mkdir, unlink } from 'fs/promises';
 import path from 'path';
@@ -249,3 +249,4 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ success: false, message: 'Gagal menonaktifkan produk' }, { status: 500 });
   }
 }
+

@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import Sidebar from '@/components/Sidebar';
+import RealtimeConnection from '@/components/RealtimeConnection';
+import { disconnectSocket } from '@/lib/socket';
 
 const PUBLIC_ROUTES = ['/login'];
 
@@ -21,12 +23,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [isAuthenticated, isPublicRoute, router]);
 
-  // Halaman login - tidak pakai layout dengan sidebar
+  useEffect(() => {
+    if (!isAuthenticated || isPublicRoute) {
+      disconnectSocket();
+    }
+  }, [isAuthenticated, isPublicRoute]);
+
   if (isPublicRoute) {
     return <>{children}</>;
   }
 
-  // Belum authenticated - jangan tampilkan apapun (redirect sedang berjalan)
   if (!isAuthenticated) {
     return (
       <div className="loading-screen">
@@ -38,11 +44,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Authenticated - tampilkan layout dengan sidebar
   return (
     <div className="app-shell">
+      <RealtimeConnection />
       <Sidebar isOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />
-      
+
       <div className="app-shell__content">
         <div className="app-shell__column">
           <header className="app-shell__mobile-header">

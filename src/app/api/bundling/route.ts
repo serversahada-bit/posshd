@@ -5,7 +5,7 @@ import { mkdir, unlink, writeFile } from 'fs/promises';
 import path from 'path';
 
 import prisma from '@/lib/db';
-import { emitEvent } from '@/lib/socket';
+import { emitEvent } from '@/lib/socket-server';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads', 'products');
 
@@ -261,3 +261,4 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, message: getErrorMessage(error) || 'Gagal memproses bundling' }, { status: 500 });
   }
 }
+
