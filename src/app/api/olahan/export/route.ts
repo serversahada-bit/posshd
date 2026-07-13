@@ -20,7 +20,7 @@ const toSafeString = (value: unknown): string => {
   return typeof value === 'bigint' ? value.toString() : String(value);
 };
 
-const toExcelValue = (value: unknown): string | number | boolean | Date => {
+const toExcelValue = (value: unknown): string | number | Date => {
   if (value instanceof Date) {
     return value;
   }
@@ -30,8 +30,12 @@ const toExcelValue = (value: unknown): string | number | boolean | Date => {
     return Number.isSafeInteger(numeric) ? numeric : value.toString();
   }
 
-  if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
+  if (typeof value === 'number' || typeof value === 'string') {
     return value;
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false';
   }
 
   if (value == null) {
@@ -280,7 +284,7 @@ export async function POST(request: Request) {
 
       let codValue: string | number = '';
       if (order.payment_method === 'cod' || order.payment_method === 'no_payment') {
-        codValue = toExcelValue(order.total_payment);
+        codValue = toSafeNumber(order.total_payment);
       }
 
       const tanggalProses = order.updated_at ? new Date(order.updated_at) : '';
