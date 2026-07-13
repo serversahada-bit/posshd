@@ -234,7 +234,23 @@ export async function POST(request: Request) {
             accountNo = acc.account_number;
           }
         }
+      } else if (paymentMethod === 'free') {
+        const noPaymentId = parseInt(formData.get('no_payment_method_id') as string, 10);
+        if (noPaymentId) {
+          const method = await tx.no_payment_methods.findUnique({ where: { id: noPaymentId } });
+          if (method) {
+            bankName = method.method_name;
+            accountName = method.description;
+          }
+        }
       }
+
+      const paymentStatus =
+        paymentMethod === 'cod'
+          ? 'unpaid'
+          : paymentMethod === 'bank_transfer'
+            ? 'waiting_confirmation'
+            : (paymentProofUrl ? 'waiting_confirmation' : 'unpaid');
 
       await tx.payments_cso.create({
         data: {
@@ -244,7 +260,7 @@ export async function POST(request: Request) {
           account_name: accountName,
           account_number: accountNo,
           payment_proof_url: paymentProofUrl,
-          payment_status: paymentMethod === 'cod' ? 'unpaid' : (paymentProofUrl ? 'waiting_confirmation' : 'unpaid'),
+          payment_status: paymentStatus,
         }
       });
 
@@ -268,5 +284,3 @@ export async function POST(request: Request) {
     );
   }
 }
-
-

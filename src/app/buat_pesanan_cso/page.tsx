@@ -430,7 +430,7 @@ export default function BuatPesananPage() {
     fd.append('payment_method', paymentMethod);
 
     if (paymentMethod === 'bank_transfer') fd.append('payment_account_id', paymentAccountId);
-    if (paymentMethod === 'free') fd.append('payment_account_id', noPaymentMethodId);
+    if (paymentMethod === 'free') fd.append('no_payment_method_id', noPaymentMethodId);
     if (paymentProofFile) fd.append('payment_proof', paymentProofFile);
 
     cart.forEach(c => {
