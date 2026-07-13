@@ -9,6 +9,18 @@ import { cookies } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
 
+async function hasColumn(tableName: string, columnName: string) {
+  const rows = await prisma.$queryRaw<Array<{ total: bigint | number }>>`
+    SELECT COUNT(*) AS total
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = ${tableName}
+      AND COLUMN_NAME = ${columnName}
+  `;
+
+  return Number(rows[0]?.total || 0) > 0;
+}
+
 function generateOrderCode() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let result = 'R';
@@ -89,6 +101,8 @@ export async function POST(request: Request) {
     const courierName = formData.get('courier_name') as string;
     const paymentMethod = formData.get('payment_method') as string;
     const notes = formData.get('notes') as string;
+    const advertiserName = formData.get('advertiser_name') as string;
+    const adSource = formData.get('ad_source') as string;
     const roCount = parseInt(formData.get('ro_count') as string, 10) || 0;
     const isRo = roCount > 0 ? true : false;
     const scalevOrderId = formData.get('order_code') as string || null;
@@ -119,6 +133,11 @@ export async function POST(request: Request) {
     const pDiscs = formData.getAll('item_discount[]') as string[];
     const pQtys = formData.getAll('item_qty[]') as string[];
 
+    const [ordersCsoHasAdvertiser, ordersCsoHasAdSource] = await Promise.all([
+      hasColumn('orders_cso', 'advertiser_name'),
+      hasColumn('orders_cso', 'ad_source'),
+    ]);
+
     // We will do this in a transaction
     const orderCode = generateOrderCode();
 
@@ -146,6 +165,28 @@ export async function POST(request: Request) {
           warehouse_id: warehouseId,
         }
       });
+
+      if ((ordersCsoHasAdvertiser && advertiserName) || (ordersCsoHasAdSource && adSource)) {
+        const advUpdates: string[] = [];
+        const advParams: Array<string | number | null> = [];
+
+        if (ordersCsoHasAdvertiser) {
+          advUpdates.push('advertiser_name = ?');
+          advParams.push(advertiserName || null);
+        }
+
+        if (ordersCsoHasAdSource) {
+          advUpdates.push('ad_source = ?');
+          advParams.push(adSource || null);
+        }
+
+        advParams.push(order.id);
+
+        await tx.$executeRawUnsafe(
+          `UPDATE orders_cso SET ${advUpdates.join(', ')} WHERE id = ?`,
+          ...advParams
+        );
+      }
 
       // 2. Create Items & Deduct Stock
       let totalWeightGrams = 0;

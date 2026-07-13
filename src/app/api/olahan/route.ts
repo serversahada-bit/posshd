@@ -5,6 +5,18 @@ const jsonSafe = <T>(value: T): T => JSON.parse(JSON.stringify(value, (_key, ite
 
 export const dynamic = 'force-dynamic';
 
+async function hasColumn(tableName: string, columnName: string) {
+  const rows = await prisma.$queryRaw<Array<{ total: bigint | number }>>`
+    SELECT COUNT(*) AS total
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = ${tableName}
+      AND COLUMN_NAME = ${columnName}
+  `;
+
+  return Number(rows[0]?.total || 0) > 0;
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -12,7 +24,18 @@ export async function GET(request: Request) {
     const endDate = searchParams.get('end_date') || '';
     const status = searchParams.get('status') || '';
 
-    // Parameters for raw query
+    const [ordersCsoHasAdvertiser, ordersCsoHasAdSource, ordersCrmHasAdvertiser, ordersCrmHasAdSource] = await Promise.all([
+      hasColumn('orders_cso', 'advertiser_name'),
+      hasColumn('orders_cso', 'ad_source'),
+      hasColumn('orders_crm', 'advertiser_name'),
+      hasColumn('orders_crm', 'ad_source'),
+    ]);
+
+    const ordersCsoAdvertiserSelect = ordersCsoHasAdvertiser ? 'o.advertiser_name' : 'NULL';
+    const ordersCsoAdSourceSelect = ordersCsoHasAdSource ? 'o.ad_source' : 'NULL';
+    const ordersCrmAdvertiserSelect = ordersCrmHasAdvertiser ? 'o.advertiser_name' : 'NULL';
+    const ordersCrmAdSourceSelect = ordersCrmHasAdSource ? 'o.ad_source' : 'NULL';
+
     const params: string[] = [];
     let conditionQuery = '';
 
@@ -70,8 +93,8 @@ export async function GET(request: Request) {
             o.order_code,
             o.order_status,
             o.created_at,
-            NULL as advertiser_name,
-            NULL as ad_source,
+            ${ordersCsoAdvertiserSelect} as advertiser_name,
+            ${ordersCsoAdSourceSelect} as ad_source,
             o.notes,
             c.name as customer_name,
             c.whatsapp_number,
@@ -101,8 +124,8 @@ export async function GET(request: Request) {
             o.order_code,
             o.order_status,
             o.created_at,
-            NULL as advertiser_name,
-            NULL as ad_source,
+            ${ordersCrmAdvertiserSelect} as advertiser_name,
+            ${ordersCrmAdSourceSelect} as ad_source,
             o.notes,
             c.name as customer_name,
             c.whatsapp_number,

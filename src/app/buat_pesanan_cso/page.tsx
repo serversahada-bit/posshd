@@ -75,6 +75,8 @@ export default function BuatPesananPage() {
   const [age, setAge] = useState('');
   const [complaint, setComplaint] = useState('');
   const [notes, setNotes] = useState('');
+  const [advertiserName, setAdvertiserName] = useState('');
+  const [adSource, setAdSource] = useState('');
   const [roCount, setRoCount] = useState<number | ''>('');
 
   const [paymentMethod, setPaymentMethod] = useState('bank_transfer');
@@ -415,6 +417,8 @@ export default function BuatPesananPage() {
     fd.append('age', age);
     fd.append('complaint', complaint);
     fd.append('notes', notes);
+    fd.append('advertiser_name', advertiserName);
+    fd.append('ad_source', adSource);
     fd.append('ro_count', roCount.toString());
     fd.append('promo_id', promoId);
 
@@ -557,6 +561,21 @@ export default function BuatPesananPage() {
             <div>
               <label className="block text-xs font-medium text-slate-500 mb-1">Nama Lengkap <span className="text-red-500">*</span></label>
               <input required value={customerName} onChange={e => setCustomerName(e.target.value)} type="text" className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 focus:border-purple-300 outline-none text-sm placeholder:text-slate-400" placeholder="Contoh: Budi Santoso" />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Nama Advertiser</label>
+              <select value={advertiserName} onChange={e => setAdvertiserName(e.target.value)} className="w-full border border-slate-300 text-slate-800 text-sm rounded-lg outline-none focus:ring-1 focus:ring-purple-300 focus:border-purple-300 px-3 py-2.5 bg-white">
+                <option value="">-- Pilih Advertiser --</option>
+                {data?.advertisers.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Sumber Iklan</label>
+              <select value={adSource} onChange={e => setAdSource(e.target.value)} className="w-full border border-slate-300 text-slate-800 text-sm rounded-lg outline-none focus:ring-1 focus:ring-purple-300 focus:border-purple-300 px-3 py-2.5 bg-white">
+                <option value="">-- Pilih Sumber Iklan --</option>
+                {data?.adSources.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
+              </select>
             </div>
 
             <div className="md:col-span-2">

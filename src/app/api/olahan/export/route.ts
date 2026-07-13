@@ -4,6 +4,18 @@ import ExcelJS from 'exceljs';
 
 export const dynamic = 'force-dynamic';
 
+async function hasColumn(tableName: string, columnName: string) {
+  const rows = await prisma.$queryRaw<Array<{ total: bigint | number }>>`
+    SELECT COUNT(*) AS total
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = ${tableName}
+      AND COLUMN_NAME = ${columnName}
+  `;
+
+  return Number(rows[0]?.total || 0) > 0;
+}
+
 const toSafeNumber = (value: unknown): number => {
   if (typeof value === 'bigint') {
     return Number(value);
@@ -48,6 +60,18 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { startDate, endDate, status, selectedIds } = body;
+
+    const [ordersCsoHasAdvertiser, ordersCsoHasAdSource, ordersCrmHasAdvertiser, ordersCrmHasAdSource] = await Promise.all([
+      hasColumn('orders_cso', 'advertiser_name'),
+      hasColumn('orders_cso', 'ad_source'),
+      hasColumn('orders_crm', 'advertiser_name'),
+      hasColumn('orders_crm', 'ad_source'),
+    ]);
+
+    const ordersCsoAdvertiserSelect = ordersCsoHasAdvertiser ? 'o.advertiser_name' : 'NULL';
+    const ordersCsoAdSourceSelect = ordersCsoHasAdSource ? 'o.ad_source' : 'NULL';
+    const ordersCrmAdvertiserSelect = ordersCrmHasAdvertiser ? 'o.advertiser_name' : 'NULL';
+    const ordersCrmAdSourceSelect = ordersCrmHasAdSource ? 'o.ad_source' : 'NULL';
 
     let conditionQuery = '';
     const params: any[] = [];
@@ -124,7 +148,7 @@ export async function POST(request: Request) {
               o.total_product_price, o.shipping_cost, o.total_payment, o.product_discount, o.other_fee,
               o.additional_shipping_cost,
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
-              NULL as advertiser_name, NULL as ad_source,
+              ${ordersCsoAdvertiserSelect} as advertiser_name, ${ordersCsoAdSourceSelect} as ad_source,
               c.name as customer_name, c.whatsapp_number, c.email, c.address, c.subdistrict, c.age, c.complaint,
               p.payment_method,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
@@ -146,7 +170,7 @@ export async function POST(request: Request) {
               o.total_product_price, o.shipping_cost, o.total_payment, o.product_discount, o.other_fee,
               o.additional_shipping_cost,
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
-              NULL as advertiser_name, NULL as ad_source,
+              ${ordersCrmAdvertiserSelect} as advertiser_name, ${ordersCrmAdSourceSelect} as ad_source,
               c.name as customer_name, c.whatsapp_number, c.email, c.address, c.subdistrict, c.age, c.complaint,
               p.payment_method,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
@@ -318,7 +342,10 @@ export async function POST(request: Request) {
       let adv = order.advertiser_name || '';
       if (csCrm === 'CRM') adv = '';
       
-      const fee = order.additional_shipping_cost || 0;
+      const legacyOtherFee = Number(order.other_fee || 0);
+      const fee = Number(order.additional_shipping_cost || 0) > 0
+        ? Number(order.additional_shipping_cost || 0)
+        : (order.payment_method === 'cod' && legacyOtherFee > 0 ? legacyOtherFee : 0);
       const ro = (order.is_ro == 1) ? (order.ro_count || '') : '';
 
       let keteranganNinja = '';
@@ -354,9 +381,8 @@ export async function POST(request: Request) {
       let csAdvStr = `${sessionUserName}.${advName}`.replace(/^\.+|\.+$/g, '');
       if (!csAdvStr) csAdvStr = '-';
 
-      const ongkirVal = order.shipping_cost || 0;
-      let diskonVal = Number(order.product_discount || 0) - Number(order.other_fee || 0);
-      if (diskonVal < 0) diskonVal = 0;
+      const ongkirVal = Number(order.shipping_cost || 0);
+      const diskonVal = Number(order.product_discount || 0);
 
       const roVal = ro ? `RO${ro}` : '-';
       const promoVal = promoName !== '-' ? promoName : '-';
