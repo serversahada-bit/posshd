@@ -2,11 +2,34 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { emitEvent } from '@/lib/socket-server';
 
+type UnvalidatedOrder = {
+  order_id: bigint | number;
+  order_code: string;
+  created_at: Date | string;
+  total_payment: bigint | number;
+  customer_name: string | null;
+  payment_id: bigint | number;
+  payment_status: string;
+  payment_proof_url: string | null;
+  bank_name: string | null;
+  account_name: string | null;
+  account_number: string | null;
+  source_table: 'CSO' | 'CSO_AUTO' | 'CRM';
+};
 
-export async function GET(request: NextRequest) {
+const jsonSafe = <T>(value: T): T =>
+  JSON.parse(
+    JSON.stringify(value, (_key, item) =>
+      typeof item === 'bigint' ? item.toString() : item
+    )
+  ) as T;
+
+export const dynamic = 'force-dynamic';
+
+export async function GET() {
   try {
     // We use Prisma's $queryRaw to mimic the UNION ALL query exactly as in POIN.
-    const unvalidatedOrders: any[] = await prisma.$queryRaw`
+    const unvalidatedOrders = await prisma.$queryRaw<UnvalidatedOrder[]>`
       SELECT * FROM (
           SELECT 
               o.id as order_id,
@@ -69,10 +92,13 @@ export async function GET(request: NextRequest) {
       ORDER BY created_at DESC
     `;
 
-    return NextResponse.json({ status: 'success', data: unvalidatedOrders });
-  } catch (error: any) {
+    return NextResponse.json(jsonSafe({ status: 'success', data: unvalidatedOrders }));
+  } catch (error: unknown) {
     console.error('Error fetching unvalidated orders:', error);
-    return NextResponse.json({ status: 'error', message: error.message }, { status: 500 });
+    return NextResponse.json(
+      { status: 'error', message: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    );
   }
 }
 
@@ -122,7 +148,9 @@ export async function POST(request: NextRequest) {
       await emitEvent('NEW_OLAHAN');
 
       return NextResponse.json({ status: 'success', message: 'Pembayaran berhasil divalidasi FAT.' });
-    } else if (action === 'reject') {
+    }
+
+    if (action === 'reject') {
       if (source_table === 'CRM') {
         await prisma.payments_crm.update({
           where: { id: pid },
@@ -151,12 +179,14 @@ export async function POST(request: NextRequest) {
       });
 
       return NextResponse.json({ status: 'success', message: 'Pembayaran ditolak.' });
-    } else {
-      return NextResponse.json({ status: 'error', message: 'Invalid action' }, { status: 400 });
     }
-  } catch (error: any) {
+
+    return NextResponse.json({ status: 'error', message: 'Invalid action' }, { status: 400 });
+  } catch (error: unknown) {
     console.error('Error handling validasi pembayaran:', error);
-    return NextResponse.json({ status: 'error', message: error.message }, { status: 500 });
+    return NextResponse.json(
+      { status: 'error', message: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    );
   }
 }
-
