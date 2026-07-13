@@ -109,7 +109,7 @@ export async function POST(request: Request) {
       }
       const path = join(uploadDir, filename);
       await writeFile(path, buffer);
-      paymentProofUrl = `uploads/payments/${filename}`;
+      paymentProofUrl = `/uploads/payments/${filename}`;
     }
 
     // Parse Items (Products)
@@ -268,4 +268,5 @@ export async function POST(request: Request) {
     );
   }
 }
+
 

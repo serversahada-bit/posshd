@@ -5,6 +5,18 @@ import { useSocketEvent } from '@/hooks/useSocketEvent';
 import Swal from 'sweetalert2';
 import { ExternalLink, Check, X } from 'lucide-react';
 
+const getProofUrl = (value?: string | null) => {
+  if (!value) {
+    return '';
+  }
+
+  if (value.startsWith('http://') || value.startsWith('https://')) {
+    return value;
+  }
+
+  return `/${value.replace(/^\/+/, '')}`;
+};
+
 export default function ValidasiPembayaranPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -191,7 +203,7 @@ export default function ValidasiPembayaranPage() {
                     </td>
                     <td className="p-4">
                       {row.payment_proof_url ? (
-                        <a href={row.payment_proof_url} target="_blank" rel="noreferrer" className="text-purple-600 hover:text-purple-700 hover:underline text-sm font-medium flex items-center gap-1 w-max">
+                        <a href={getProofUrl(row.payment_proof_url)} target="_blank" rel="noreferrer" className="text-purple-600 hover:text-purple-700 hover:underline text-sm font-medium flex items-center gap-1 w-max">
                           <ExternalLink className="w-4 h-4" />
                           Lihat Bukti
                         </a>

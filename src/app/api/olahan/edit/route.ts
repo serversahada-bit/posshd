@@ -81,7 +81,7 @@ async function saveProof(file: File | null) {
   await mkdir(dir, { recursive: true });
   const name = `proof_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
   await writeFile(join(dir, name), Buffer.from(await file.arrayBuffer()));
-  return `uploads/payments/${name}`;
+  return `/uploads/payments/${name}`;
 }
 
 export async function PUT(request: Request) {
@@ -186,3 +186,5 @@ export async function PUT(request: Request) {
     return NextResponse.json({ status: 'error', message: error.message || 'Gagal menyimpan perubahan' }, { status: 500 });
   }
 }
+
+
