@@ -4,6 +4,42 @@ import ExcelJS from 'exceljs';
 
 export const dynamic = 'force-dynamic';
 
+const toSafeNumber = (value: unknown): number => {
+  if (typeof value === 'bigint') {
+    return Number(value);
+  }
+
+  return Number(value || 0);
+};
+
+const toSafeString = (value: unknown): string => {
+  if (value == null) {
+    return '';
+  }
+
+  return typeof value === 'bigint' ? value.toString() : String(value);
+};
+
+const toExcelValue = (value: unknown): string | number | boolean | Date => {
+  if (value instanceof Date) {
+    return value;
+  }
+
+  if (typeof value === 'bigint') {
+    const numeric = Number(value);
+    return Number.isSafeInteger(numeric) ? numeric : value.toString();
+  }
+
+  if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
+    return value;
+  }
+
+  if (value == null) {
+    return '';
+  }
+
+  return String(value);
+};
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -242,16 +278,16 @@ export async function POST(request: Request) {
         berat = Math.ceil(weightGram / 1000);
       }
 
-      let codValue = '';
+      let codValue: string | number = '';
       if (order.payment_method === 'cod' || order.payment_method === 'no_payment') {
-        codValue = order.total_payment;
+        codValue = toExcelValue(order.total_payment);
       }
 
       const tanggalProses = order.updated_at ? new Date(order.updated_at) : '';
       const timestamp = order.created_at ? new Date(order.created_at) : '';
-      const noResiStr = order.tracking_number ? String(order.tracking_number) : '';
+      const noResiStr = order.tracking_number ? toSafeString(order.tracking_number) : '';
 
-      const usia = order.age || '-';
+      const usia = order.age != null ? toExcelValue(order.age) : '-';
       const keluhan = order.complaint || '-';
 
       let addressUpper = (order.address || '').toUpperCase();
@@ -387,19 +423,19 @@ export async function POST(request: Request) {
         if (exportItems[i]) {
           rowData.push(
             (exportItems[i].product_name || '').toUpperCase(),
-            Number(exportItems[i].qty),
-            (Number(exportItems[i].price) - Number(exportItems[i].discount || 0)) * Number(exportItems[i].qty)
+            toSafeNumber(exportItems[i].qty),
+            (toSafeNumber(exportItems[i].price) - toSafeNumber(exportItems[i].discount || 0)) * toSafeNumber(exportItems[i].qty)
           );
         } else {
           rowData.push('', '', '');
         }
       }
 
-      const outputRow = worksheet.addRow(rowData);
+      const outputRow = worksheet.addRow(rowData.map(toExcelValue));
       if (tanggalProses) outputRow.getCell(1).numFmt = 'mm-dd-yy';
       if (timestamp) outputRow.getCell(3).numFmt = 'm/d/yy "h":mm';
       outputRow.getCell(2).value = noResiStr;
-      outputRow.getCell(7).value = order.whatsapp_number ? String(order.whatsapp_number) : '';
+      outputRow.getCell(7).value = order.whatsapp_number ? toSafeString(order.whatsapp_number) : '';
     }
 
     const referenceWidths = [
@@ -430,3 +466,4 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: 'error', message: error.message }, { status: 500 });
   }
 }
+
