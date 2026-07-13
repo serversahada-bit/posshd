@@ -5,8 +5,8 @@
   "scripts": {
     "dev": "concurrently \"node server-ws.js\" \"next dev\"",
     "build": "next build",
-    "start": "next start",
-    "start:full": "concurrently \"node server-ws.js\" \"next start\"",
+    "start": "next start --hostname 0.0.0.0",
+    "start:full": "concurrently \"node server-ws.js\" \"next start --hostname 0.0.0.0\"",
     "start:ws": "node server-ws.js",
     "lint": "eslint"
   },
@@ -38,3 +38,4 @@
     "typescript": "^5"
   }
 }
+
