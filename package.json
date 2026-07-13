@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "concurrently \"node server-ws.js\" \"next dev\"",
     "build": "next build",
-    "start": "concurrently \"node server-ws.js\" \"next start\"",
+    "start": "next start",
+    "start:full": "concurrently \"node server-ws.js\" \"next start\"",
+    "start:ws": "node server-ws.js",
     "lint": "eslint"
   },
   "dependencies": {
