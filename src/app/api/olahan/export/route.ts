@@ -57,6 +57,8 @@ const toExcelValue = (value: unknown): string | number | Date => {
   return String(value);
 };
 
+const EXCEL_TIME_ZONE = 'Asia/Jakarta';
+
 const toDateObject = (value: unknown): Date | null => {
   if (!value) {
     return null;
@@ -70,30 +72,50 @@ const toDateObject = (value: unknown): Date | null => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
-const formatExcelDate = (value: unknown): string => {
+const formatDateParts = (value: unknown): Record<'day' | 'month' | 'year' | 'hour' | 'minute', string> | null => {
   const date = toDateObject(value);
   if (!date) {
+    return null;
+  }
+
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone: EXCEL_TIME_ZONE,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+
+  const parts = formatter.formatToParts(date);
+  const map = Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+
+  return {
+    day: map.day || '00',
+    month: map.month || '00',
+    year: map.year || '0000',
+    hour: map.hour || '00',
+    minute: map.minute || '00',
+  };
+};
+
+const formatExcelDate = (value: unknown): string => {
+  const parts = formatDateParts(value);
+  if (!parts) {
     return '';
   }
 
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const year = String(date.getFullYear());
-  return `${day}/${month}/${year}`;
+  return `${parts.day}/${parts.month}/${parts.year}`;
 };
 
 const formatExcelDateTime = (value: unknown): string => {
-  const date = toDateObject(value);
-  if (!date) {
+  const parts = formatDateParts(value);
+  if (!parts) {
     return '';
   }
 
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const year = String(date.getFullYear());
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  return `${day}/${month}/${year} ${hours}:${minutes}`;
+  return `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}`;
 };
 
 export async function POST(request: Request) {
