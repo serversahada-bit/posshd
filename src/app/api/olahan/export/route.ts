@@ -56,6 +56,46 @@ const toExcelValue = (value: unknown): string | number | Date => {
 
   return String(value);
 };
+
+const toDateObject = (value: unknown): Date | null => {
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  const parsed = new Date(String(value));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const formatExcelDate = (value: unknown): string => {
+  const date = toDateObject(value);
+  if (!date) {
+    return '';
+  }
+
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = String(date.getFullYear());
+  return `${day}/${month}/${year}`;
+};
+
+const formatExcelDateTime = (value: unknown): string => {
+  const date = toDateObject(value);
+  if (!date) {
+    return '';
+  }
+
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = String(date.getFullYear());
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${day}/${month}/${year} ${hours}:${minutes}`;
+};
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -311,9 +351,9 @@ export async function POST(request: Request) {
         codValue = toSafeNumber(order.total_payment);
       }
 
-      const processedAt = order.updated_at || order.created_at || null;
-      const tanggalProses = processedAt ? new Date(processedAt) : '';
-      const timestamp = processedAt ? new Date(processedAt) : '';
+      const processedAt = order.created_at || order.updated_at || null;
+      const tanggalProses = formatExcelDate(processedAt);
+      const timestamp = formatExcelDateTime(processedAt);
       const noResiStr = order.tracking_number ? toSafeString(order.tracking_number) : '';
 
       const usia = order.age != null ? toExcelValue(order.age) : '-';
@@ -463,8 +503,6 @@ export async function POST(request: Request) {
       }
 
       const outputRow = worksheet.addRow(rowData.map(toExcelValue));
-      if (tanggalProses) outputRow.getCell(1).numFmt = 'dd/mm/yyyy';
-      if (timestamp) outputRow.getCell(3).numFmt = 'dd/mm/yyyy hh:mm:ss';
       outputRow.getCell(2).value = noResiStr;
       outputRow.getCell(7).value = order.whatsapp_number ? toSafeString(order.whatsapp_number) : '';
     }

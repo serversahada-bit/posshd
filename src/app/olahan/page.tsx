@@ -257,11 +257,14 @@ export default function OlahanPage() {
     }).format(date);
   };
 
-  const downloadBlob = (blob: Blob, filename: string) => {
+  const downloadBlob = (blob: Blob, filename: string, response?: Response) => {
+    const headerName = response?.headers.get('content-disposition')?.match(/filename="?([^";]+)"?/)?.[1];
+    const finalFilename = headerName || filename;
+
     const url = window.URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = filename;
+    anchor.download = finalFilename;
     document.body.appendChild(anchor);
     anchor.click();
     window.URL.revokeObjectURL(url);
@@ -287,7 +290,7 @@ export default function OlahanPage() {
       }
 
       const blob = await response.blob();
-      downloadBlob(blob, `Data_Pesanan_Olahan_${Date.now()}.xlsx`);
+      downloadBlob(blob, `Data_Pesanan_Olahan_${Date.now()}.xlsx`, response);
     } catch (error: unknown) {
       await Swal.fire('Error', getErrorMessage(error), 'error');
     } finally {
@@ -314,7 +317,7 @@ export default function OlahanPage() {
       }
 
       const blob = await response.blob();
-      downloadBlob(blob, `Template_Update_Status_${Date.now()}.xlsx`);
+      downloadBlob(blob, `Template_Update_Status_${Date.now()}.xlsx`, response);
     } catch (error: unknown) {
       await Swal.fire('Error', getErrorMessage(error), 'error');
     } finally {
