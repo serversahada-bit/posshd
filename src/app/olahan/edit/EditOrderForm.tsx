@@ -313,7 +313,7 @@ export default function EditOrderForm() {
     setSaving(true);
     try {
       const body = new FormData();
-      body.append('payload', JSON.stringify({ ...form, id, source, total_product_price: subtotal, total_payment: total, items }));
+      body.append('payload', JSON.stringify({ ...form, order_status: 'pending', id, source, total_product_price: subtotal, total_payment: total, items }));
       if (proof) {
         body.append('payment_proof', proof);
       }
@@ -735,14 +735,8 @@ export default function EditOrderForm() {
                   </select>
                 </Field>
                 <Field label="Status Pesanan">
-                  <select className={inputClass} value={form.order_status} onChange={(event) => set("order_status", event.target.value)}>
-                    <option value="pending">Pending</option>
-                    <option value="processing">Processing</option>
-                    <option value="shipped">Shipped</option>
-                    <option value="delivered">Delivered</option>
-                    <option value="completed">Completed</option>
-                    <option value="cancelled">Cancelled</option>
-                  </select>
+                  <input className={`${inputClass} bg-slate-100 text-slate-500`} value="Pending" disabled readOnly />
+                  <p className="mt-2 text-xs text-amber-600">Setiap simpan edit dari halaman ini akan otomatis mengubah status pesanan menjadi Pending.</p>
                 </Field>
                 <Field label="Catatan">
                   <textarea rows={3} className={textareaClass} value={form.notes} onChange={(event) => set("notes", event.target.value)} />
@@ -860,6 +854,7 @@ function AddSelect({ value, onChange, title, options }: { value: string; onChang
     </div>
   );
 }
+
 
 
 
