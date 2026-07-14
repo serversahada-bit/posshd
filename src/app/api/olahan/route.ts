@@ -58,7 +58,7 @@ export async function GET(request: Request) {
             o.id as order_id,
             o.order_code,
             o.order_status,
-            o.created_at,
+            COALESCE(o.updated_at, o.created_at) as created_at,
             o.advertiser_name,
             o.ad_source,
             o.notes,
@@ -92,7 +92,7 @@ export async function GET(request: Request) {
             o.id as order_id,
             o.order_code,
             o.order_status,
-            o.created_at,
+            COALESCE(o.updated_at, o.created_at) as created_at,
             ${ordersCsoAdvertiserSelect} as advertiser_name,
             ${ordersCsoAdSourceSelect} as ad_source,
             o.notes,
@@ -123,7 +123,7 @@ export async function GET(request: Request) {
             o.id as order_id,
             o.order_code,
             o.order_status,
-            o.created_at,
+            COALESCE(o.updated_at, o.created_at) as created_at,
             ${ordersCrmAdvertiserSelect} as advertiser_name,
             ${ordersCrmAdSourceSelect} as ad_source,
             o.notes,
@@ -160,3 +160,4 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: 'error', message: error instanceof Error ? error.message : 'Gagal mengambil data olahan' }, { status: 500 });
   }
 }
+

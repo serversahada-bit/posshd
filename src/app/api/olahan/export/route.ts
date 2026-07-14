@@ -373,7 +373,7 @@ export async function POST(request: Request) {
         codValue = toSafeNumber(order.total_payment);
       }
 
-      const processedAt = order.created_at || order.updated_at || null;
+      const processedAt = order.updated_at || order.created_at || null;
       const tanggalProses = formatExcelDate(processedAt);
       const timestamp = formatExcelDateTime(processedAt);
       const noResiStr = order.tracking_number ? toSafeString(order.tracking_number) : '';
