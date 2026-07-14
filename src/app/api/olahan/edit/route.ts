@@ -94,7 +94,7 @@ export async function PUT(request: Request) {
     const resolved = await resolveOrder(identifier, source);
     if (!resolved) return NextResponse.json({ status: 'error', message: 'Pesanan tidak ditemukan' }, { status: 404 });
     const proofUrl = await saveProof(form.get('payment_proof') as File | null);
-    const updatedAt = new Date();
+    const updatedAt = new Date(Date.now() + 7 * 60 * 60 * 1000);
     const t = tableMap[source];
     const orderId = Number(resolved.id);
     const items = (payload.items || []) as ItemInput[];
@@ -188,6 +188,9 @@ export async function PUT(request: Request) {
     return NextResponse.json({ status: 'error', message: error.message || 'Gagal menyimpan perubahan' }, { status: 500 });
   }
 }
+
+
+
 
 
 
