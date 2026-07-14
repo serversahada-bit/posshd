@@ -70,7 +70,6 @@ export default function BuatPesananPage() {
   const [destOpts, setDestOpts] = useState<any[]>([]);
   const [showDestOpts, setShowDestOpts] = useState(false);
 
-  const [orderCode, setOrderCode] = useState('');
   const [promoId, setPromoId] = useState('');
   const [age, setAge] = useState('');
   const [complaint, setComplaint] = useState('');
@@ -401,15 +400,6 @@ export default function BuatPesananPage() {
     if (cart.length === 0) return Swal.fire('Error', 'Keranjang kosong', 'error');
     if (!warehouseId || !courierName) return Swal.fire('Error', 'Gudang & Kurir wajib dipilih', 'error');
 
-    if (!orderCode) {
-      Swal.fire('Error', 'ID Order (Scalev) tidak boleh kosong!', 'error');
-      return;
-    }
-    if (orderCode.length !== 13) {
-      Swal.fire('Error', 'ID Order (Scalev) harus berisi tepat 13 karakter!', 'error');
-      return;
-    }
-    setSubmitting(true);
     const fd = new FormData();
     fd.append('user_id', String(user?.id ?? 0));
     if (customerId) fd.append('customer_id', customerId);
@@ -424,7 +414,6 @@ export default function BuatPesananPage() {
     fd.append('notes', notes);
     fd.append('advertiser_name', advertiserName);
     fd.append('ad_source', adSource);
-    if (orderCode) fd.append('order_code', orderCode);
     fd.append('promo_id', promoId);
 
     fd.append('total_product_price', totals.subtotalProducts.toString());
@@ -549,87 +538,70 @@ export default function BuatPesananPage() {
             <p className="text-xs text-slate-400 mt-2">Ketik nama atau nomor WA untuk mencari pelanggan yang sudah pernah order sebelumnya.</p>
           </div>
         </div>
-
         {showForm && (
-          <>
-            {/* Informasi Pelanggan & Pengiriman */}
+          <div className="space-y-6">
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-visible">
-          <div className="p-4 border-b border-slate-100 bg-slate-50/50">
-            <h2 className="font-bold text-slate-800">Informasi Pelanggan & Pengiriman</h2>
-          </div>
-          <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-5">
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Nomor WhatsApp <span className="text-red-500">*</span></label>
-              <input required value={whatsappNumber} onChange={e => handleWaCheck(e.target.value)} type="text" className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 focus:border-purple-300 outline-none text-sm placeholder:text-slate-400" placeholder="Contoh: 081234567890" />
-              {waCheckMsg.text && <p className={`text-[11px] font-medium mt-1 ${waCheckMsg.type}`}>{waCheckMsg.text}</p>}
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Nama Lengkap <span className="text-red-500">*</span></label>
-              <input required value={customerName} onChange={e => setCustomerName(e.target.value)} type="text" className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 focus:border-purple-300 outline-none text-sm placeholder:text-slate-400" placeholder="Contoh: Budi Santoso" />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-slate-500 mb-1">ID Order (Scalev) <span className="text-red-500">*</span></label>
-              <input required value={orderCode} onChange={e => setOrderCode(e.target.value)} type="text" className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 outline-none text-sm placeholder:text-slate-400" placeholder="Contoh: SCV-123456" />
-              {orderCode && <p className={`text-[11px] font-medium mt-1 ${orderCode.length === 13 ? 'text-emerald-600' : 'text-red-500'}`}>{orderCode.length === 13 ? 'Karakter Pas (13)' : `Tidak valid (${orderCode.length})`}</p>}
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Nama Advertiser</label>
-              <select value={advertiserName} onChange={e => setAdvertiserName(e.target.value)} className="w-full border border-slate-300 text-slate-800 text-sm rounded-lg outline-none focus:ring-1 focus:ring-purple-300 focus:border-purple-300 px-3 py-2.5 bg-white">
-                <option value="">-- Pilih Advertiser --</option>
-                {data?.advertisers.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Sumber Iklan</label>
-              <select value={adSource} onChange={e => setAdSource(e.target.value)} className="w-full border border-slate-300 text-slate-800 text-sm rounded-lg outline-none focus:ring-1 focus:ring-purple-300 focus:border-purple-300 px-3 py-2.5 bg-white">
-                <option value="">-- Pilih Sumber Iklan --</option>
-                {data?.adSources.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
-              </select>
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-slate-500 mb-1">Email (Opsional)</label>
-              <input value={email} onChange={e => setEmail(e.target.value)} type="email" className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 outline-none text-sm placeholder:text-slate-400" placeholder="Contoh: budi@gmail.com" />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-slate-500 mb-1">Alamat Lengkap</label>
-              <textarea required value={address} onChange={e => setAddress(e.target.value)} rows={3} className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 outline-none text-sm placeholder:text-slate-400" placeholder="Nama Jalan, RT/RW, Dusun..."></textarea>
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-slate-500 mb-1">Kecamatan / Kota / Provinsi <span className="text-red-500">*</span></label>
-              <div className="relative">
-                <input required value={destSearch} onChange={e => handleDestSearch(e.target.value)} onFocus={() => handleDestSearch(destSearch)} onBlur={() => setTimeout(() => setShowDestOpts(false), 200)} type="text" className="w-full border border-slate-300 rounded-lg pl-4 pr-10 py-2.5 focus:ring-1 focus:ring-purple-300 outline-none text-sm placeholder:text-slate-400" placeholder="Pilih atau cari Kecamatan, Kota, atau Provinsi..." />
-                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                {showDestOpts && destOpts.length > 0 && (
-                  <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
-                    {destOpts.map((opt, i) => (
-                      <div key={i} onClick={() => {
-                        setSubdistrict(opt.id);
-                        setDestSearch(opt.id);
-                        setShowDestOpts(false);
-                      }} className="p-3 hover:bg-violet-50 cursor-pointer border-b border-slate-100 text-sm font-medium text-slate-700">
-                        {opt.text}
+              <div className="p-4 border-b border-slate-100 bg-slate-50/50">
+                <h2 className="font-bold text-slate-800">Informasi Pelanggan & Pengiriman</h2>
+              </div>
+              <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Nomor WhatsApp <span className="text-red-500">*</span></label>
+                  <input required value={whatsappNumber} onChange={e => handleWaCheck(e.target.value)} type="text" className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 focus:border-purple-300 outline-none text-sm placeholder:text-slate-400" placeholder="Contoh: 081234567890" />
+                  {waCheckMsg.text && <p className={`text-[11px] font-medium mt-1 ${waCheckMsg.type}`}>{waCheckMsg.text}</p>}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Nama Lengkap <span className="text-red-500">*</span></label>
+                  <input required value={customerName} onChange={e => setCustomerName(e.target.value)} type="text" className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 focus:border-purple-300 outline-none text-sm placeholder:text-slate-400" placeholder="Contoh: Budi Santoso" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Nama Advertiser</label>
+                  <select value={advertiserName} onChange={e => setAdvertiserName(e.target.value)} className="w-full border border-slate-300 text-slate-800 text-sm rounded-lg outline-none focus:ring-1 focus:ring-purple-300 focus:border-purple-300 px-3 py-2.5 bg-white">
+                    <option value="">-- Pilih Advertiser --</option>
+                    {data?.advertisers.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Sumber Iklan</label>
+                  <select value={adSource} onChange={e => setAdSource(e.target.value)} className="w-full border border-slate-300 text-slate-800 text-sm rounded-lg outline-none focus:ring-1 focus:ring-purple-300 focus:border-purple-300 px-3 py-2.5 bg-white">
+                    <option value="">-- Pilih Sumber Iklan --</option>
+                    {data?.adSources.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Email (Opsional)</label>
+                  <input value={email} onChange={e => setEmail(e.target.value)} type="email" className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 outline-none text-sm placeholder:text-slate-400" placeholder="Contoh: budi@gmail.com" />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Alamat Lengkap</label>
+                  <textarea required value={address} onChange={e => setAddress(e.target.value)} rows={3} className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 outline-none text-sm placeholder:text-slate-400" placeholder="Nama Jalan, RT/RW, Dusun..."></textarea>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Kecamatan / Kota / Provinsi <span className="text-red-500">*</span></label>
+                  <div className="relative">
+                    <input required value={destSearch} onChange={e => handleDestSearch(e.target.value)} onFocus={() => handleDestSearch(destSearch)} onBlur={() => setTimeout(() => setShowDestOpts(false), 200)} type="text" className="w-full border border-slate-300 rounded-lg pl-4 pr-10 py-2.5 focus:ring-1 focus:ring-purple-300 outline-none text-sm placeholder:text-slate-400" placeholder="Pilih atau cari Kecamatan, Kota, atau Provinsi..." />
+                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    {showDestOpts && destOpts.length > 0 && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+                        {destOpts.map((opt, i) => (
+                          <div key={i} onClick={() => {
+                            setSubdistrict(opt.id);
+                            setDestSearch(opt.id);
+                            setShowDestOpts(false);
+                          }} className="p-3 hover:bg-violet-50 cursor-pointer border-b border-slate-100 text-sm font-medium text-slate-700">
+                            {opt.text}
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    )}
                   </div>
-                )}
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Desa (Opsional)</label>
+                  <input value={desa} onChange={e => setDesa(e.target.value)} type="text" className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 outline-none text-sm placeholder:text-slate-400" placeholder="Contoh: Sukamaju" />
+                </div>
               </div>
             </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-slate-500 mb-1">Desa (Opsional)</label>
-              <input value={desa} onChange={e => setDesa(e.target.value)} type="text" className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 outline-none text-sm placeholder:text-slate-400" placeholder="Contoh: Sukamaju" />
-            </div>
-
-          </div>
-        </div>
-        <div className="space-y-6">
-
-          {/* KOLOM PRODUK & PENGIRIMAN */}
           <div className="space-y-6">
 
             {/* Produk */}
@@ -925,7 +897,6 @@ export default function BuatPesananPage() {
 
           </div>
         </div>
-        </>
         )}
       </form>
 
@@ -1021,3 +992,4 @@ export default function BuatPesananPage() {
     </div>
   );
 }
+

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
+import { Prisma } from '@prisma/client';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import crypto from 'crypto';
@@ -21,13 +22,59 @@ async function hasColumn(tableName: string, columnName: string) {
   return Number(rows[0]?.total || 0) > 0;
 }
 
-function generateOrderCode() {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let result = 'R';
-  for (let i = 0; i < 12; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
+const pad2 = (value: number) => String(value).padStart(2, '0');
+
+function getPaymentCode(paymentMethod: string) {
+  switch (paymentMethod) {
+    case 'cod':
+      return 'C';
+    case 'bank_transfer':
+      return 'B';
+    case 'ewallet':
+      return 'E';
+    case 'free':
+      return 'F';
+    default:
+      return 'X';
   }
-  return result;
+}
+
+async function generateOrderCode(tx: Prisma.TransactionClient, payload: { warehouseId: number; courierName: string; paymentMethod: string }) {
+  const now = new Date();
+  const datePart = `${pad2(now.getFullYear() % 100)}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}`;
+
+  const warehouse = Number.isFinite(payload.warehouseId)
+    ? await tx.warehouses.findUnique({
+        where: { id: payload.warehouseId },
+        select: { code: true, warehouse_name: true },
+      })
+    : null;
+
+  const courier = payload.courierName
+    ? await tx.couriers.findFirst({
+        where: { courier_name: { equals: payload.courierName } },
+        select: { code: true, courier_name: true },
+      })
+    : null;
+
+  const warehouseCode = (warehouse?.code || warehouse?.warehouse_name || 'X').trim().charAt(0).toUpperCase() || 'X';
+  const paymentCode = getPaymentCode(payload.paymentMethod);
+  const courierCode = (courier?.code || courier?.courier_name || payload.courierName || 'X').trim().charAt(0).toUpperCase() || 'X';
+  const prefix = `${datePart}C${warehouseCode}${paymentCode}${courierCode}`;
+
+  for (let sequence = 1; sequence <= 99; sequence += 1) {
+    const candidate = `${prefix}A${pad2(sequence)}`;
+    const exists = await tx.orders_cso.findUnique({
+      where: { order_code: candidate },
+      select: { id: true },
+    });
+
+    if (!exists) {
+      return candidate;
+    }
+  }
+
+  throw new Error('Gagal membuat unique code CSO. Batas urutan harian sudah penuh.');
 }
 
 export async function POST(request: Request) {
@@ -106,7 +153,7 @@ export async function POST(request: Request) {
     const roCount = parseInt(formData.get('ro_count') as string, 10) || 0;
     const isRo = roCount > 0 ? true : false;
     const scalevOrderId = formData.get('order_code') as string || null;
-    const promoId = formData.get('promo_id') as string; // Assume single promo for now
+    const promoId = formData.get('promo_id') as string;
 
     // Handle File Upload (Payment Proof)
     let paymentProofUrl = null;
@@ -138,10 +185,9 @@ export async function POST(request: Request) {
       hasColumn('orders_cso', 'ad_source'),
     ]);
 
-    // We will do this in a transaction
-    const orderCode = generateOrderCode();
-
     const orderResult = await prisma.$transaction(async (tx) => {
+      const orderCode = await generateOrderCode(tx, { warehouseId, courierName, paymentMethod });
+
       // 1. Create Order
       const order = await tx.orders_cso.create({
         data: {
@@ -156,7 +202,7 @@ export async function POST(request: Request) {
           product_discount: productDiscount,
           shipping_cost: shippingCost,
           shipping_discount: 0,
-          other_fee: manualFeeCod + otherFee, // combining fee COD & other fee
+          other_fee: manualFeeCod + otherFee,
           promo_id: promoId,
           total_payment: totalPayment,
           notes: notes,
@@ -205,7 +251,6 @@ export async function POST(request: Request) {
             name = g.gift_name;
             totalWeightGrams += (g.weight_gram || 0) * qty;
           }
-          // Deduct gift stock
           if (warehouseId) {
             await tx.warehouse_gift_stock.updateMany({
               where: { gift_id: pId, warehouse_id: warehouseId },
@@ -218,7 +263,6 @@ export async function POST(request: Request) {
             name = p.product_name;
             totalWeightGrams += (p.weight_gram || 0) * qty;
           }
-          // Deduct product stock
           if (warehouseId) {
             await tx.warehouse_stock.updateMany({
               where: { product_id: pId, warehouse_id: warehouseId },
@@ -317,12 +361,11 @@ export async function POST(request: Request) {
       order_code: orderResult.order_code,
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating order:', error);
     return NextResponse.json(
-      { status: 'error', message: error.message || 'Internal server error' },
+      { status: 'error', message: error instanceof Error ? error.message : 'Internal server error' },
       { status: 500 }
     );
   }
 }
-

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
+import { Prisma } from '@prisma/client';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import crypto from 'crypto';
@@ -8,6 +9,61 @@ import { emitEvent } from '@/lib/socket-server';
 import { cookies } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
+
+const pad2 = (value: number) => String(value).padStart(2, '0');
+
+function getPaymentCode(paymentMethod: string) {
+  switch (paymentMethod) {
+    case 'cod':
+      return 'C';
+    case 'bank_transfer':
+      return 'B';
+    case 'ewallet':
+      return 'E';
+    case 'free':
+      return 'F';
+    default:
+      return 'X';
+  }
+}
+
+async function generateOrderCode(tx: Prisma.TransactionClient, payload: { warehouseId: number; courierName: string; paymentMethod: string }) {
+  const now = new Date();
+  const datePart = `${pad2(now.getFullYear() % 100)}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}`;
+
+  const warehouse = Number.isFinite(payload.warehouseId)
+    ? await tx.warehouses.findUnique({
+        where: { id: payload.warehouseId },
+        select: { code: true, warehouse_name: true },
+      })
+    : null;
+
+  const courier = payload.courierName
+    ? await tx.couriers.findFirst({
+        where: { courier_name: { equals: payload.courierName } },
+        select: { code: true, courier_name: true },
+      })
+    : null;
+
+  const warehouseCode = (warehouse?.code || warehouse?.warehouse_name || 'X').trim().charAt(0).toUpperCase() || 'X';
+  const paymentCode = getPaymentCode(payload.paymentMethod);
+  const courierCode = (courier?.code || courier?.courier_name || payload.courierName || 'X').trim().charAt(0).toUpperCase() || 'X';
+  const prefix = `${datePart}D${warehouseCode}${paymentCode}${courierCode}`;
+
+  for (let sequence = 1; sequence <= 99; sequence += 1) {
+    const candidate = `${prefix}A${pad2(sequence)}`;
+    const exists = await tx.orders.findUnique({
+      where: { order_code: candidate },
+      select: { id: true },
+    });
+
+    if (!exists) {
+      return candidate;
+    }
+  }
+
+  throw new Error('Gagal membuat unique code Resend. Batas urutan harian sudah penuh.');
+}
 
 export async function POST(request: Request) {
   try {
@@ -27,7 +83,6 @@ export async function POST(request: Request) {
     
     let customerId = parseInt(customerIdStr, 10);
 
-    // If no customer ID but name is provided, create a new customer
     if (!customerId && customerName) {
       const parts = subdistrict ? subdistrict.split(',') : [];
       const province = parts[0]?.trim() || null;
@@ -68,7 +123,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ status: 'error', message: 'Customer ID or Name is required' }, { status: 400 });
     }
 
-    // Parse Order Totals & Settings
     const totalProductPrice = parseInt(formData.get('total_product_price') as string, 10) || 0;
     const productDiscount = parseInt(formData.get('product_discount') as string, 10) || 0;
     const shippingCost = parseInt(formData.get('shipping_cost') as string, 10) || 0;
@@ -82,10 +136,8 @@ export async function POST(request: Request) {
     const notes = '[RESEND] ' + (formData.get('notes') as string || '').trim();
     const advertiserName = formData.get('advertiser_name') as string;
     const adSource = formData.get('ad_source') as string;
-    const scalevOrderId = formData.get('order_code') as string || null;
-    const promoId = formData.get('promo_id') as string; // Assume single promo for now
+    const promoId = formData.get('promo_id') as string;
 
-    // Handle File Upload (Payment Proof)
     let paymentProofUrl = null;
     const file = formData.get('payment_proof') as File | null;
     if (file && file.size > 0) {
@@ -103,25 +155,20 @@ export async function POST(request: Request) {
       paymentProofUrl = `/uploads/payments/${filename}`;
     }
 
-    // Parse Items (Products)
     const pIds = formData.getAll('item_product_id[]') as string[];
     const isGifts = formData.getAll('item_is_gift[]') as string[];
     const pPrices = formData.getAll('item_price[]') as string[];
     const pDiscs = formData.getAll('item_discount[]') as string[];
     const pQtys = formData.getAll('item_qty[]') as string[];
 
-    // We will do this in a transaction
-    const orderCode = formData.get('order_code') as string;
-    if (!orderCode) {
-      return NextResponse.json({ status: 'error', message: 'Order Code is required' }, { status: 400 });
-    }
 
     const orderResult = await prisma.$transaction(async (tx) => {
-      // 1. Create Order
+      const orderCode = await generateOrderCode(tx, { warehouseId, courierName, paymentMethod });
+
       const order = await tx.orders.create({
         data: {
           order_code: orderCode,
-          scalev_order_id: scalevOrderId,
+          scalev_order_id: null,
           customer_id: customerId,
           created_by_user_id: createdByUserId,
           order_type: 'normal',
@@ -131,7 +178,7 @@ export async function POST(request: Request) {
           product_discount: productDiscount,
           shipping_cost: shippingCost,
           shipping_discount: 0,
-          other_fee: manualFeeCod + otherFee, // combining fee COD & other fee
+          other_fee: manualFeeCod + otherFee,
           promo_id: promoId,
           total_payment: totalPayment,
           notes: notes,
@@ -141,7 +188,6 @@ export async function POST(request: Request) {
         }
       });
 
-      // 2. Create Items & Deduct Stock
       let totalWeightGrams = 0;
       for (let i = 0; i < pIds.length; i++) {
         const pId = parseInt(pIds[i], 10);
@@ -158,7 +204,6 @@ export async function POST(request: Request) {
             name = g.gift_name;
             totalWeightGrams += (g.weight_gram || 0) * qty;
           }
-          // Deduct gift stock
           if (warehouseId) {
             await tx.warehouse_gift_stock.updateMany({
               where: { gift_id: pId, warehouse_id: warehouseId },
@@ -171,7 +216,6 @@ export async function POST(request: Request) {
             name = p.product_name;
             totalWeightGrams += (p.weight_gram || 0) * qty;
           }
-          // Deduct product stock
           if (warehouseId) {
             await tx.warehouse_stock.updateMany({
               where: { product_id: pId, warehouse_id: warehouseId },
@@ -194,7 +238,6 @@ export async function POST(request: Request) {
         });
       }
 
-      // 3. Create Shipment
       if (courierName) {
         await tx.shipments.create({
           data: {
@@ -209,7 +252,6 @@ export async function POST(request: Request) {
         });
       }
 
-      // 4. Create Payment
       let finalPaymentMethod: 'bank_transfer' | 'cod' | 'ewallet' | 'free' = 'bank_transfer';
       if (paymentMethod === 'cod') finalPaymentMethod = 'cod';
       if (paymentMethod === 'free') finalPaymentMethod = 'free';
@@ -254,13 +296,12 @@ export async function POST(request: Request) {
       order_code: orderResult.order_code,
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating order:', error);
     return NextResponse.json(
-      { status: 'error', message: error.message || 'Internal server error' },
+      { status: 'error', message: error instanceof Error ? error.message : 'Internal server error' },
       { status: 500 }
     );
   }
 }
-
 

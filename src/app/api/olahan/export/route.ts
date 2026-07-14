@@ -311,8 +311,9 @@ export async function POST(request: Request) {
         codValue = toSafeNumber(order.total_payment);
       }
 
-      const tanggalProses = order.updated_at ? new Date(order.updated_at) : '';
-      const timestamp = order.created_at ? new Date(order.created_at) : '';
+      const processedAt = order.updated_at || order.created_at || null;
+      const tanggalProses = processedAt ? new Date(processedAt) : '';
+      const timestamp = processedAt ? new Date(processedAt) : '';
       const noResiStr = order.tracking_number ? toSafeString(order.tracking_number) : '';
 
       const usia = order.age != null ? toExcelValue(order.age) : '-';
@@ -462,8 +463,8 @@ export async function POST(request: Request) {
       }
 
       const outputRow = worksheet.addRow(rowData.map(toExcelValue));
-      if (tanggalProses) outputRow.getCell(1).numFmt = 'mm-dd-yy';
-      if (timestamp) outputRow.getCell(3).numFmt = 'm/d/yy "h":mm';
+      if (tanggalProses) outputRow.getCell(1).numFmt = 'dd/mm/yyyy';
+      if (timestamp) outputRow.getCell(3).numFmt = 'dd/mm/yyyy hh:mm:ss';
       outputRow.getCell(2).value = noResiStr;
       outputRow.getCell(7).value = order.whatsapp_number ? toSafeString(order.whatsapp_number) : '';
     }
