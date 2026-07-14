@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, Loader2, Plus, Save, ShieldCheck, ShoppingCart, Trash2, Truck, UserRound } from 'lucide-react';
+import { ArrowLeft, Loader2, MapPin, Plus, Save, ShieldCheck, ShoppingCart, Trash2, Truck, UserRound, X } from 'lucide-react';
 import Swal from 'sweetalert2';
 
 type Item = {
@@ -50,6 +50,9 @@ export default function EditOrderForm() {
   const [addProduct, setAddProduct] = useState('');
   const [addGift, setAddGift] = useState('');
   const [addBundle, setAddBundle] = useState('');
+  const [showCourierModal, setShowCourierModal] = useState(false);
+  const [availableCouriers, setAvailableCouriers] = useState<any[]>([]);
+  const [loadingCouriers, setLoadingCouriers] = useState(false);
 
   useEffect(() => {
     if (!proof) {
@@ -146,6 +149,109 @@ export default function EditOrderForm() {
     0,
     subtotal - number(form.product_discount) + number(form.shipping_cost) + number(form.manual_fee_cod) + number(form.other_fee) - number(form.shipping_discount),
   );
+
+  const stockByWarehouse = useMemo(() => {
+    if (!data) {
+      return { product: {}, gift: {} };
+    }
+
+    const product: Record<string, Record<string, number>> = {};
+    const gift: Record<string, Record<string, number>> = {};
+
+    data.productStocks.forEach((row: any) => {
+      const warehouseKey = String(row.warehouse_id);
+      if (!product[warehouseKey]) product[warehouseKey] = {};
+      product[warehouseKey][String(row.product_id)] = number(row.stock);
+    });
+
+    data.giftStocks.forEach((row: any) => {
+      const warehouseKey = String(row.warehouse_id);
+      if (!gift[warehouseKey]) gift[warehouseKey] = {};
+      gift[warehouseKey][String(row.gift_id)] = number(row.stock);
+    });
+
+    return { product, gift };
+  }, [data]);
+
+  const getValidWarehouses = () => {
+    if (!data || items.length === 0) {
+      return data?.warehouses.map((warehouse: any) => Number(warehouse.id)) || [];
+    }
+
+    return data.warehouses
+      .filter((warehouse: any) => {
+        for (const item of items) {
+          if (item.is_bundle) continue;
+          const stockMap = item.is_gift ? stockByWarehouse.gift : stockByWarehouse.product;
+          const available = stockMap[String(warehouse.id)]?.[String(item.product_id)] ?? 0;
+          if (available < number(item.qty)) {
+            return false;
+          }
+        }
+        return true;
+      })
+      .map((warehouse: any) => Number(warehouse.id));
+  };
+
+  const fetchShippingOptions = async () => {
+    if (!data || !form.subdistrict) {
+      setAvailableCouriers([]);
+      return;
+    }
+
+    setLoadingCouriers(true);
+    try {
+      const response = await fetch(`/api/shipping/rates?subdistrict=${encodeURIComponent(form.subdistrict)}`);
+      const json = await response.json();
+
+      if (json.status !== 'success' || !json.origins) {
+        setAvailableCouriers([]);
+        return;
+      }
+
+      const validWarehouses = getValidWarehouses();
+      const nextOptions: any[] = [];
+
+      Object.entries(json.origins).forEach(([origin, originData]: [string, any]) => {
+        const warehouseIds = Array.isArray(originData.warehouse_ids) ? originData.warehouse_ids : [];
+        const availableWarehouseId = warehouseIds.find((warehouseId: number) => validWarehouses.includes(Number(warehouseId)));
+        const fallbackWarehouseId = warehouseIds[0];
+        const targetWarehouseId = availableWarehouseId || fallbackWarehouseId;
+
+        Object.entries(originData.rates || {}).forEach(([courierCode, rate]: [string, any]) => {
+          if (!number(rate.price)) return;
+
+          const matchedCourier = data.couriers.find((item: any) => String(item.courier_name).toUpperCase() === courierCode.toUpperCase())
+            || data.couriers.find((item: any) => String(item.courier_name).toUpperCase().includes(courierCode.toUpperCase()));
+
+          nextOptions.push({
+            courierId: matchedCourier?.id || '',
+            courierName: courierCode,
+            warehouseId: targetWarehouseId || '',
+            origin: origin.toUpperCase(),
+            estimation: rate.estimation || 'Tidak ada estimasi',
+            price: number(rate.price),
+            outOfStock: !availableWarehouseId,
+          });
+        });
+      });
+
+      nextOptions.sort((a, b) => {
+        if (a.outOfStock === b.outOfStock) return a.price - b.price;
+        return a.outOfStock ? 1 : -1;
+      });
+
+      setAvailableCouriers(nextOptions);
+    } catch (error) {
+      setAvailableCouriers([]);
+    } finally {
+      setLoadingCouriers(false);
+    }
+  };
+
+  useEffect(() => {
+    void fetchShippingOptions();
+  }, [data, form.subdistrict, items]);
 
   const set = (key: string, value: any) => setForm((prev) => ({ ...prev, [key]: value }));
 
@@ -258,6 +364,15 @@ export default function EditOrderForm() {
       </div>
     );
   }
+
+  const selectedWarehouse = data.warehouses.find((item: any) => String(item.id) === String(form.warehouse_id));
+  const selectedCourier = data.couriers.find((item: any) => String(item.id) === String(form.courier_id));
+  const courierSummary = selectedCourier
+    ? `${selectedCourier.courier_name}${selectedCourier.service_type ? ` - ${selectedCourier.service_type}` : ''}`
+    : 'Kurir belum dipilih';
+  const warehouseSummary = selectedWarehouse
+    ? `${selectedWarehouse.warehouse_name}${selectedWarehouse.city ? ` - ${selectedWarehouse.city}` : ''}`
+    : 'Gudang belum dipilih';
 
   return (
     <div className="w-full px-4 py-6 md:px-8 lg:px-12">
@@ -480,7 +595,6 @@ export default function EditOrderForm() {
                 </div>
               </div>
             </section>
-
             <section className={sectionClass}>
               <div className={sectionHeadClass}>
                 <div className="flex items-center gap-3">
@@ -509,7 +623,7 @@ export default function EditOrderForm() {
                     <option value="refunded">Refunded</option>
                   </select>
                 </Field>
-                {form.payment_method === 'bank_transfer' ? (
+                {form.payment_method === "bank_transfer" ? (
                   <Field label="Rekening">
                     <select className={inputClass} value={form.payment_account_id} onChange={(event) => set('payment_account_id', event.target.value)}>
                       <option value="">Pilih rekening</option>
@@ -519,7 +633,7 @@ export default function EditOrderForm() {
                     </select>
                   </Field>
                 ) : null}
-                {form.payment_method === 'free' ? (
+                {form.payment_method === "free" ? (
                   <Field label="Alasan tanpa pembayaran">
                     <select className={inputClass} value={form.no_payment_method_id} onChange={(event) => set('no_payment_method_id', event.target.value)}>
                       <option value="">Pilih alasan</option>
@@ -543,11 +657,11 @@ export default function EditOrderForm() {
                   {form.payment_proof_url ? (
                     <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-3">
                       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Bukti saat ini</p>
-                      <a className="mb-3 inline-block text-xs font-medium text-purple-600 hover:text-purple-700" href={form.payment_proof_url.startsWith('http') ? form.payment_proof_url : "/" + form.payment_proof_url.replace(/^\/+/, '')} target="_blank" rel="noreferrer">
+                      <a className="mb-3 inline-block text-xs font-medium text-purple-600 hover:text-purple-700" href={form.payment_proof_url.startsWith('http') ? form.payment_proof_url : "/" + form.payment_proof_url.replace(/^\/+/, "")} target="_blank" rel="noreferrer">
                         Buka gambar penuh
                       </a>
                       <img
-                        src={form.payment_proof_url.startsWith('http') ? form.payment_proof_url : "/" + form.payment_proof_url.replace(/^\/+/, '')}
+                        src={form.payment_proof_url.startsWith('http') ? form.payment_proof_url : "/" + form.payment_proof_url.replace(/^\/+/, "")}
                         alt="Bukti pembayaran saat ini"
                         className="max-h-72 w-auto rounded-lg border border-slate-200 bg-white object-contain"
                       />
@@ -556,52 +670,64 @@ export default function EditOrderForm() {
                 </Field>
               </div>
             </section>
-
             <section className={sectionClass}>
               <div className={sectionHeadClass}>
-                <div className="flex items-center gap-3">
-                  <div className="rounded-xl bg-purple-100 p-2 text-purple-500">
-                    <Truck className="h-5 w-5" />
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-xl bg-purple-100 p-2 text-purple-500">
+                      <Truck className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h2 className="font-bold text-slate-800">Pengiriman & Logistik</h2>
+                      <p className="text-sm text-slate-500">Pilih kurir dari pop-up opsi seperti halaman buat pesanan.</p>
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="font-bold text-slate-800">Gudang, Kurir & Ringkasan</h2>
-                    <p className="text-sm text-slate-500">Atur logistik dan lihat ringkasan pembayaran akhir.</p>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowCourierModal(true)}
+                    disabled={loadingCouriers || availableCouriers.length === 0}
+                    className="rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    Ubah Kurir
+                  </button>
                 </div>
               </div>
               <div className={`${sectionBodyClass} space-y-4`}>
-                <Field label="Gudang *">
-                  <select required className={inputClass} value={form.warehouse_id} onChange={(event) => set('warehouse_id', event.target.value)}>
-                    <option value="">Pilih gudang</option>
-                    {data.warehouses.map((item: any) => (
-                      <option key={item.id} value={item.id}>{item.warehouse_name} - {item.city}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Kurir">
-                  <select className={inputClass} value={form.courier_id} onChange={(event) => set('courier_id', event.target.value)}>
-                    <option value="">Pilih kurir</option>
-                    {data.couriers.map((item: any) => (
-                      <option key={item.id} value={item.id}>{item.courier_name} {item.service_type ? `- ${item.service_type}` : ''}</option>
-                    ))}
-                  </select>
-                </Field>
+                <div className="flex items-start gap-4 rounded-xl border border-violet-100 bg-violet-50/50 p-4">
+                  <div className="rounded-lg bg-violet-100 p-2 text-purple-400">
+                    <MapPin className="h-6 w-6" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-bold text-slate-800">
+                      {courierSummary}
+                      {selectedWarehouse ? <span className="text-purple-400"> - {selectedWarehouse.city?.toUpperCase?.() || "GUDANG"}</span> : null}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Gudang Asal: <strong>{selectedWarehouse?.warehouse_name || warehouseSummary}</strong>
+                    </p>
+                    <p className="mt-2 text-sm font-bold text-purple-500">Biaya Ongkir: Rp {money(number(form.shipping_cost))}</p>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                  <h3 className="font-bold text-slate-800">Opsi Kurir & Gudang</h3>
+                  <p className="mt-1 text-sm text-slate-500">Pemilihan utama dilakukan lewat tombol Ubah Kurir agar alurnya sama seperti halaman buat pesanan.</p>
+                </div>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Ongkir">
-                    <input type="number" min="0" className={inputClass} value={form.shipping_cost} onChange={(event) => set('shipping_cost', number(event.target.value))} />
+                    <input type="number" min="0" className={inputClass} value={form.shipping_cost} onChange={(event) => set("shipping_cost", number(event.target.value))} />
                   </Field>
                   <Field label="Diskon Produk">
-                    <input type="number" min="0" className={inputClass} value={form.product_discount} onChange={(event) => set('product_discount', number(event.target.value))} />
+                    <input type="number" min="0" className={inputClass} value={form.product_discount} onChange={(event) => set("product_discount", number(event.target.value))} />
                   </Field>
                   <Field label="Biaya COD">
-                    <input type="number" min="0" className={inputClass} value={form.manual_fee_cod} onChange={(event) => set('manual_fee_cod', number(event.target.value))} />
+                    <input type="number" min="0" className={inputClass} value={form.manual_fee_cod} onChange={(event) => set("manual_fee_cod", number(event.target.value))} />
                   </Field>
                   <Field label="Biaya Lain">
-                    <input type="number" min="0" className={inputClass} value={form.other_fee} onChange={(event) => set('other_fee', number(event.target.value))} />
+                    <input type="number" min="0" className={inputClass} value={form.other_fee} onChange={(event) => set("other_fee", number(event.target.value))} />
                   </Field>
                 </div>
                 <Field label="Promo">
-                  <select className={inputClass} value={form.promo_id} onChange={(event) => set('promo_id', event.target.value)}>
+                  <select className={inputClass} value={form.promo_id} onChange={(event) => set("promo_id", event.target.value)}>
                     <option value="">Tanpa promo</option>
                     {data.promos.map((item: any) => (
                       <option key={item.id} value={item.id}>{item.promo_name}</option>
@@ -609,7 +735,7 @@ export default function EditOrderForm() {
                   </select>
                 </Field>
                 <Field label="Status Pesanan">
-                  <select className={inputClass} value={form.order_status} onChange={(event) => set('order_status', event.target.value)}>
+                  <select className={inputClass} value={form.order_status} onChange={(event) => set("order_status", event.target.value)}>
                     <option value="pending">Pending</option>
                     <option value="processing">Processing</option>
                     <option value="shipped">Shipped</option>
@@ -619,7 +745,7 @@ export default function EditOrderForm() {
                   </select>
                 </Field>
                 <Field label="Catatan">
-                  <textarea rows={3} className={textareaClass} value={form.notes} onChange={(event) => set('notes', event.target.value)} />
+                  <textarea rows={3} className={textareaClass} value={form.notes} onChange={(event) => set("notes", event.target.value)} />
                 </Field>
                 <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4">
                   <div className="flex items-center justify-between text-sm text-slate-600">
@@ -646,6 +772,63 @@ export default function EditOrderForm() {
           </button>
         </div>
       </form>
+
+      {showCourierModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 p-4">
+              <h3 className="font-bold text-slate-800">Opsi Kurir & Gudang</h3>
+              <button type="button" onClick={() => setShowCourierModal(false)} className="text-slate-400 transition-colors hover:text-slate-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex-1 space-y-2 overflow-y-auto p-3">
+              {loadingCouriers ? (
+                <div className="flex items-center justify-center rounded-xl border border-slate-200 p-6 text-sm text-slate-500">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin text-purple-500" />
+                  Memuat opsi kurir...
+                </div>
+              ) : null}
+              {!loadingCouriers && availableCouriers.length === 0 ? (
+                <div className="rounded-xl border border-amber-100 bg-amber-50 p-4 text-sm font-medium text-amber-700">
+                  Opsi kurir belum tersedia untuk tujuan ini.
+                </div>
+              ) : null}
+              {!loadingCouriers ? availableCouriers.map((option, index) => {
+                const isActive = String(option.warehouseId) === String(form.warehouse_id) && String(option.courierId) === String(form.courier_id);
+                return (
+                  <label
+                    key={`${option.courierName}-${option.origin}-${index}`}
+                    className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${option.outOfStock ? 'border-slate-200 bg-slate-50 opacity-60' : 'border-slate-200 hover:border-violet-300'} ${isActive ? 'border-purple-300 bg-violet-50/50 ring-1 ring-purple-300' : ''}`}
+                  >
+                    <input
+                      type="radio"
+                      name="courierSelection"
+                      className="mt-1 text-purple-400 focus:ring-purple-300"
+                      checked={isActive}
+                      disabled={option.outOfStock || !option.courierId}
+                      onChange={() => {
+                        set('warehouse_id', String(option.warehouseId));
+                        set('courier_id', String(option.courierId));
+                        set('shipping_cost', number(option.price));
+                        setShowCourierModal(false);
+                      }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold uppercase text-slate-800">
+                        {option.courierName} <span className="ml-1 font-semibold text-purple-400">- {option.origin}</span>
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">Estimasi: {option.estimation || 'Tidak ada estimasi'}</p>
+                      <p className="mt-2 font-bold text-purple-500">Rp {money(number(option.price))}</p>
+                      {option.outOfStock ? <p className="mt-1 text-[10px] font-bold text-red-500">Stok tidak cukup di gudang ini</p> : null}
+                    </div>
+                  </label>
+                );
+              }) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -677,3 +860,10 @@ function AddSelect({ value, onChange, title, options }: { value: string; onChang
     </div>
   );
 }
+
+
+
+
+
+
+
