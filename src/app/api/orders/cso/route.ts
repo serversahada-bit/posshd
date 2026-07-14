@@ -92,7 +92,7 @@ export async function POST(request: Request) {
     const notes = formData.get('notes') as string;
     const advertiserName = formData.get('advertiser_name') as string;
     const adSource = formData.get('ad_source') as string;
-    const scalevOrderId = formData.get('order_code') as string || null;
+    const scalevOrderId = ((formData.get('order_code') as string) || '').trim() || null;
     const promoId = formData.get('promo_id') as string; // Assume single promo for now
 
     // Handle File Upload (Payment Proof)
@@ -120,8 +120,22 @@ export async function POST(request: Request) {
     const pDiscs = formData.getAll('item_discount[]') as string[];
     const pQtys = formData.getAll('item_qty[]') as string[];
 
+    if (scalevOrderId && scalevOrderId.length !== 13) {
+      return NextResponse.json({ status: 'error', message: 'Kode Scalev harus tepat 13 karakter' }, { status: 400 });
+    }
+
+    const orderCode = scalevOrderId || generateOrderCode();
+
+    const existingOrder = await prisma.orders.findFirst({
+      where: { order_code: orderCode },
+      select: { id: true },
+    });
+
+    if (existingOrder) {
+      return NextResponse.json({ status: 'error', message: 'ID Order sudah digunakan' }, { status: 400 });
+    }
+
     // We will do this in a transaction
-    const orderCode = generateOrderCode();
 
     const orderResult = await prisma.$transaction(async (tx) => {
       // 1. Create Order
@@ -269,5 +283,4 @@ export async function POST(request: Request) {
     );
   }
 }
-
 

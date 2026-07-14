@@ -6,6 +6,7 @@ export const dynamic = 'force-dynamic';
 
 const getErrorMessage = (error: unknown) => (error instanceof Error ? error.message : 'Terjadi kesalahan');
 const PAGE_SIZE = 50;
+const IMPORT_BATCH_SIZE = 250;
 
 export async function GET(request: NextRequest) {
   try {
@@ -100,17 +101,16 @@ async function handleImport(formData: FormData) {
     }
   });
 
-  await prisma.$transaction(async (tx) => {
-    if (truncateTable) {
-      await tx.tarif_pengiriman.deleteMany();
-    }
+  if (truncateTable) {
+    await prisma.tarif_pengiriman.deleteMany();
+  }
 
-    if (importRows.length > 0) {
-      await tx.tarif_pengiriman.createMany({
-        data: importRows,
-      });
-    }
-  });
+  for (let index = 0; index < importRows.length; index += IMPORT_BATCH_SIZE) {
+    const batch = importRows.slice(index, index + IMPORT_BATCH_SIZE);
+    await prisma.tarif_pengiriman.createMany({
+      data: batch,
+    });
+  }
 
   return importRows.length;
 }
@@ -239,3 +239,4 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, message: getErrorMessage(error) || 'Gagal memproses tarif ongkir' }, { status: 500 });
   }
 }
+
