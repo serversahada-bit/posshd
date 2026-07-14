@@ -358,6 +358,8 @@ model orders_cso {
   updated_at               DateTime                 @default(now()) @db.Timestamp(0)
   warehouse_id             Int?
   courier_id               Int?
+  advertiser_name          String?                  @db.VarChar(150)
+  ad_source                String?                  @db.VarChar(150)
   is_ro                    Boolean?                 @default(false)
   ro_count                 Int?                     @default(0)
   order_items_cso          order_items_cso[]
