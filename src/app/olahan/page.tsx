@@ -24,6 +24,7 @@ type OrderItem = {
   id_reff: string | null;
   courier_name: string | null;
   courier_service: string | null;
+  creator_name: string | null;
   source_table: string;
   source_label: string;
 };
@@ -34,6 +35,13 @@ type OlahanResponse = {
   data?: OrderItem[];
 };
 
+type UserFilterOption = {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+};
+
 const statusOptions = [
   { value: 'pending', label: 'Pending' },
   { value: 'processing', label: 'Processing' },
@@ -42,6 +50,7 @@ const statusOptions = [
   { value: 'completed', label: 'Completed' },
   { value: 'rts', label: 'RTS' },
   { value: 'problem', label: 'Problem' },
+  { value: 'cancelled', label: 'Cancel' },
 ];
 
 const getErrorMessage = (error: unknown) => (error instanceof Error ? error.message : 'Terjadi kesalahan');
@@ -60,6 +69,8 @@ export default function OlahanPage() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [creatorFilter, setCreatorFilter] = useState('');
+  const [users, setUsers] = useState<UserFilterOption[]>([]);
 
   const [bulkStatus, setBulkStatus] = useState('');
   const [selectedIds, setSelectedIds] = useState<{ id: number; source: string }[]>([]);
@@ -71,8 +82,9 @@ export default function OlahanPage() {
       if (startDate) query.append('start_date', startDate);
       if (endDate) query.append('end_date', endDate);
       if (statusFilter) query.append('status', statusFilter);
+      if (creatorFilter) query.append('creator_name', creatorFilter);
 
-      const res = await fetch(`/api/olahan?${query.toString()}`, { cache: 'no-store' });
+      const res = await fetch('/api/olahan?' + query.toString(), { cache: 'no-store' });
       const json: OlahanResponse = await res.json();
 
       if (json.status !== 'success' || !json.data) {
@@ -86,7 +98,7 @@ export default function OlahanPage() {
     } finally {
       setLoading(false);
     }
-  }, [endDate, startDate, statusFilter]);
+  }, [creatorFilter, endDate, startDate, statusFilter]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -94,24 +106,6 @@ export default function OlahanPage() {
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [fetchData]);
-
-  useEffect(() => {
-    const refreshIfVisible = () => {
-      if (document.visibilityState === 'visible') {
-        void fetchData();
-      }
-    };
-
-    const intervalId = window.setInterval(refreshIfVisible, 15000);
-    window.addEventListener('focus', refreshIfVisible);
-    document.addEventListener('visibilitychange', refreshIfVisible);
-
-    return () => {
-      window.clearInterval(intervalId);
-      window.removeEventListener('focus', refreshIfVisible);
-      document.removeEventListener('visibilitychange', refreshIfVisible);
-    };
   }, [fetchData]);
 
   useSocketEvent('NEW_OLAHAN', () => {
@@ -125,6 +119,30 @@ export default function OlahanPage() {
   useSocketEvent('NEW_ORDER', () => {
     void fetchData();
   });
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadUsers = async () => {
+      try {
+        const response = await fetch('/api/users', { cache: 'no-store' });
+        const json: { success: boolean; data?: UserFilterOption[]; message?: string } = await response.json();
+
+        if (!isMounted) return;
+        if (!json.success || !json.data) throw new Error(json.message || 'Gagal mengambil data user');
+
+        setUsers(json.data.filter((item) => item.role !== 'admin'));
+      } catch (error: unknown) {
+        if (isMounted) Swal.fire('Error', getErrorMessage(error), 'error');
+      }
+    };
+
+    void loadUsers();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleSelectAll = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.checked) {
@@ -469,12 +487,23 @@ export default function OlahanPage() {
               ))}
             </select>
           </div>
+          <div className="flex-1 w-full">
+            <label className="block text-xs font-semibold text-slate-500 mb-1.5">Creator Order</label>
+            <select value={creatorFilter} onChange={(event) => setCreatorFilter(event.target.value)} className="w-full border border-slate-300 rounded-lg px-4 py-2 focus:ring-1 focus:ring-blue-500 outline-none text-sm">
+              <option value="">Semua Creator</option>
+              {users.map((option) => (
+                <option key={option.id} value={option.name || option.email}>
+                  {option.name || option.email}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="w-full md:w-auto flex gap-2">
             <button type="button" className="bg-slate-800 hover:bg-slate-900 text-white px-5 py-2 rounded-lg text-sm font-bold shadow-sm transition-colors w-full md:w-auto">
               Terapkan
             </button>
-            {startDate || endDate || statusFilter ? (
-              <button type="button" onClick={() => { setStartDate(''); setEndDate(''); setStatusFilter(''); }} className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm font-bold transition-colors w-full md:w-auto">
+            {startDate || endDate || statusFilter || creatorFilter ? (
+              <button type="button" onClick={() => { setStartDate(''); setEndDate(''); setStatusFilter(''); setCreatorFilter(''); }} className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm font-bold transition-colors w-full md:w-auto">
                 Reset
               </button>
             ) : null}
@@ -540,6 +569,11 @@ export default function OlahanPage() {
                         {row.advertiser_name ? <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border bg-emerald-50 text-emerald-700 border-emerald-200">ADV: {row.advertiser_name}</span> : null}
                         {row.ad_source ? <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border bg-amber-50 text-amber-700 border-amber-200">SRC: {row.ad_source}</span> : null}
                       </div>
+                      {row.creator_name ? (
+                        <div className="text-[11px] text-slate-500 font-medium mt-1.5 truncate">
+                          Creator: <span className="font-bold text-slate-700">{row.creator_name}</span>
+                        </div>
+                      ) : null}
                       {row.id_reff ? (
                         <div className="text-[11px] text-slate-500 font-medium mt-1.5 truncate">
                           ID Reff: <span className="font-bold text-slate-700">{row.id_reff}</span>
@@ -638,4 +672,5 @@ export default function OlahanPage() {
     </div>
   );
 }
+
 

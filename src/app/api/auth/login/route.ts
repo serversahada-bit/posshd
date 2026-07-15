@@ -4,30 +4,26 @@ import prisma from '@/lib/db';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { email, password } = body as { email: string; password: string };
+    const rawUsername = body?.username ?? body?.email;
+    const rawPassword = body?.password;
 
-    if (!email || !password) {
-      return Response.json(
-        { success: false, message: 'Email dan password wajib diisi' },
+    const username = typeof rawUsername === 'string' ? rawUsername.trim() : '';
+    const password = typeof rawPassword === 'string' ? rawPassword : '';
+
+    if (!username || !password) {
+      return NextResponse.json(
+        { success: false, message: 'Username dan password wajib diisi' },
         { status: 400 }
       );
     }
 
     const user = await prisma.users.findUnique({
-      where: { email },
+      where: { email: username },
     });
 
-    if (!user) {
-      return Response.json(
-        { success: false, message: 'Email atau password salah!' },
-        { status: 401 }
-      );
-    }
-
-    // Validasi password (plain text seperti POIN)
-    if (user.password !== password) {
-      return Response.json(
-        { success: false, message: 'Email atau password salah!' },
+    if (!user || user.password !== password) {
+      return NextResponse.json(
+        { success: false, message: 'Username atau password salah!' },
         { status: 401 }
       );
     }
@@ -48,10 +44,11 @@ export async function POST(request: NextRequest) {
       path: '/',
       maxAge: 60 * 60 * 24 * 7,
     });
+
     return response;
   } catch (error) {
     console.error('[API /auth/login]', error);
-    return Response.json(
+    return NextResponse.json(
       { success: false, message: 'Terjadi kesalahan server. Pastikan database db_sahada_order aktif.' },
       { status: 500 }
     );

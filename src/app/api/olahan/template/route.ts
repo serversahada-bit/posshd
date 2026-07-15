@@ -13,8 +13,8 @@ type TemplateRow = {
   source_table: string;
 };
 
-const buildCondition = (payload: { startDate?: string; endDate?: string; status?: string; selectedIds?: string }) => {
-  const { startDate, endDate, status, selectedIds } = payload;
+const buildCondition = (payload: { startDate?: string; endDate?: string; status?: string; creatorName?: string; selectedIds?: string }) => {
+  const { startDate, endDate, status, creatorName, selectedIds } = payload;
   let conditionQuery = '';
   const params: Array<string | number> = [];
 
@@ -53,34 +53,47 @@ const buildCondition = (payload: { startDate?: string; endDate?: string; status?
     conditionQuery += ' AND order_status = ?';
     params.push(status);
   }
+  if (creatorName) {
+    conditionQuery += ' AND creator_name = ?';
+    params.push(creatorName);
+  }
 
   return { conditionQuery, params };
 };
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { startDate?: string; endDate?: string; status?: string; selectedIds?: string };
+    const body = await request.json() as { startDate?: string; endDate?: string; status?: string; creatorName?: string; selectedIds?: string };
     const { conditionQuery, params } = buildCondition(body);
 
     const query = `
       SELECT * FROM (
-        SELECT o.id as order_id, o.order_code, o.order_status, o.created_at, 'CSO' as source_table
+        SELECT o.id as order_id, o.order_code, o.order_status, o.created_at,
+          CASE WHEN cu.role = 'admin' THEN NULL ELSE COALESCE(NULLIF(cu.name, ''), NULLIF(cu.email, '')) END as creator_name,
+          'CSO' as source_table
         FROM orders o
         LEFT JOIN payments p ON o.id = p.order_id
+        LEFT JOIN users cu ON cu.id = o.created_by_user_id
         WHERE (p.payment_method IS NULL OR p.payment_method != 'bank_transfer' OR p.payment_status = 'paid')
 
         UNION ALL
 
-        SELECT o.id as order_id, o.order_code, o.order_status, o.created_at, 'CSO_AUTO' as source_table
+        SELECT o.id as order_id, o.order_code, o.order_status, o.created_at,
+          CASE WHEN cu.role = 'admin' THEN NULL ELSE COALESCE(NULLIF(cu.name, ''), NULLIF(cu.email, '')) END as creator_name,
+          'CSO_AUTO' as source_table
         FROM orders_cso o
         LEFT JOIN payments_cso p ON o.id = p.order_id
+        LEFT JOIN users cu ON cu.id = o.created_by_user_id
         WHERE (p.payment_method IS NULL OR p.payment_method != 'bank_transfer' OR p.payment_status = 'paid')
 
         UNION ALL
 
-        SELECT o.id as order_id, o.order_code, o.order_status, o.created_at, 'CRM' as source_table
+        SELECT o.id as order_id, o.order_code, o.order_status, o.created_at,
+          CASE WHEN cu.role = 'admin' THEN NULL ELSE COALESCE(NULLIF(cu.name, ''), NULLIF(cu.email, '')) END as creator_name,
+          'CRM' as source_table
         FROM orders_crm o
         LEFT JOIN payments_crm p ON o.id = p.order_id
+        LEFT JOIN users cu ON cu.id = o.created_by_user_id
         WHERE (p.payment_method IS NULL OR p.payment_method != 'bank_transfer' OR p.payment_status = 'paid')
       ) as combined_orders
       WHERE 1=1 ${conditionQuery}

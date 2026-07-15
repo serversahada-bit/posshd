@@ -8,7 +8,39 @@ import { emitEvent } from '@/lib/socket-server';
 
 export const dynamic = 'force-dynamic';
 
-const validStatuses = ['pending', 'paid', 'processing', 'shipped', 'completed', 'cancelled'];
+const statusAliasMap: Record<string, string> = {
+  pending: 'pending',
+  processing: 'processing',
+  'ready_to_ship': 'ready_to_ship',
+  'ready to ship': 'ready_to_ship',
+  'readytoship': 'ready_to_ship',
+  'redy to ship': 'ready_to_ship',
+  shipped: 'shipped',
+  completed: 'completed',
+  rts: 'rts',
+  problem: 'problem',
+  cancelled: 'cancelled',
+  cancel: 'cancelled',
+  paid: 'paid',
+};
+
+function normalizeStatus(value: string) {
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, ' ');
+  return statusAliasMap[normalized] || statusAliasMap[normalized.replace(/ /g, '_')] || '';
+}
+
+function buildStatusUpdateData<TStatus extends string>(status: TStatus) {
+  if (status === 'pending') {
+    return {
+      order_status: status,
+      updated_at: new Date(),
+    };
+  }
+
+  return {
+    order_status: status,
+  };
+}
 
 async function findOrderByCode(tx: Prisma.TransactionClient, orderCode: string) {
   const regular = await tx.orders.findFirst({ where: { order_code: orderCode }, select: { id: true } });
@@ -59,7 +91,7 @@ export async function POST(request: Request) {
       for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex += 1) {
         const row = worksheet.getRow(rowIndex);
         const kodePesanan = String(row.getCell(1).text || '').trim();
-        let statusBaruRaw = String(row.getCell(2).text || '').trim().toLowerCase();
+        let statusBaruRaw = String(row.getCell(2).text || '').trim();
         const noResi = String(row.getCell(4).text || '').trim();
 
         if (!kodePesanan) {
@@ -70,7 +102,7 @@ export async function POST(request: Request) {
           statusBaruRaw = 'shipped';
         }
 
-        const statusBaru = validStatuses.includes(statusBaruRaw) ? statusBaruRaw : '';
+        const statusBaru = normalizeStatus(statusBaruRaw);
         if (!statusBaru && !noResi) {
           continue;
         }
@@ -82,7 +114,10 @@ export async function POST(request: Request) {
 
         if (order.sourceTable === 'orders') {
           if (statusBaru) {
-            await tx.orders.update({ where: { id: order.orderId }, data: { order_status: statusBaru as orders_order_status } });
+            await tx.orders.update({
+              where: { id: order.orderId },
+              data: buildStatusUpdateData(statusBaru as orders_order_status),
+            });
           }
 
           if (noResi) {
@@ -107,7 +142,10 @@ export async function POST(request: Request) {
           }
         } else if (order.sourceTable === 'orders_cso') {
           if (statusBaru) {
-            await tx.orders_cso.update({ where: { id: order.orderId }, data: { order_status: statusBaru as orders_cso_order_status } });
+            await tx.orders_cso.update({
+              where: { id: order.orderId },
+              data: buildStatusUpdateData(statusBaru as orders_cso_order_status),
+            });
           }
 
           if (noResi) {
@@ -132,7 +170,10 @@ export async function POST(request: Request) {
           }
         } else {
           if (statusBaru) {
-            await tx.orders_crm.update({ where: { id: order.orderId }, data: { order_status: statusBaru as orders_crm_order_status } });
+            await tx.orders_crm.update({
+              where: { id: order.orderId },
+              data: buildStatusUpdateData(statusBaru as orders_crm_order_status),
+            });
           }
 
           if (noResi) {
@@ -183,4 +224,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: 'error', message: error instanceof Error ? error.message : 'Gagal memproses file status' }, { status: 500 });
   }
 }
-

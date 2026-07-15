@@ -6,7 +6,7 @@ import { AuthState } from '@/types/auth';
 import { useRouter } from 'next/navigation';
 
 interface AuthContextType extends AuthState {
-  login: (email: string, password: string) => Promise<{ success: boolean; message: string }>;
+  login: (username: string, password: string) => Promise<{ success: boolean; message: string }>;
   logout: () => void;
 }
 
@@ -18,7 +18,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const router = useRouter();
 
   useEffect(() => {
-    // Baca session dari localStorage (setara $_SESSION di PHP)
     const stored = localStorage.getItem('sahada-pos-session');
     if (stored) {
       try {
@@ -31,13 +30,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setLoading(false);
   }, []);
 
-  const login = async (email: string, password: string): Promise<{ success: boolean; message: string }> => {
+  const login = async (username: string, password: string): Promise<{ success: boolean; message: string }> => {
     try {
-      // Kirim ke API Route yang query ke tabel users (db_sahada_order)
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ username, password }),
       });
 
       const json = await res.json() as { success: boolean; message?: string; data?: User };

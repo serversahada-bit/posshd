@@ -4,6 +4,24 @@ import { emitEvent } from '@/lib/socket-server';
 
 export const dynamic = 'force-dynamic';
 
+function buildStatusUpdateQuery(tableName: string, ids: number[], shouldRefreshTimestamp: boolean) {
+  const placeholders = ids.map(() => '?').join(', ');
+
+  if (shouldRefreshTimestamp) {
+    return `UPDATE ${tableName} SET order_status = ?, updated_at = ? WHERE id IN (${placeholders})`;
+  }
+
+  return `UPDATE ${tableName} SET order_status = ?, updated_at = updated_at WHERE id IN (${placeholders})`;
+}
+
+function buildStatusUpdateParams(status: string, ids: number[], shouldRefreshTimestamp: boolean) {
+  if (shouldRefreshTimestamp) {
+    return [status, new Date(), ...ids];
+  }
+
+  return [status, ...ids];
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -16,33 +34,35 @@ export async function POST(request: Request) {
     const crmIdArray = crmIds ? crmIds.split(',').map(Number).filter(Boolean) : [];
 
     if (action === 'bulk_update_status') {
-      const validStatuses = ['pending', 'processing', 'ready_to_ship', 'shipped', 'completed', 'rts', 'problem'];
+      const validStatuses = ['pending', 'processing', 'ready_to_ship', 'shipped', 'completed', 'rts', 'problem', 'cancelled'];
       if (!validStatuses.includes(bulk_status)) {
         return NextResponse.json({ status: 'error', message: 'Status tidak valid.' }, { status: 400 });
       }
 
+      const shouldRefreshTimestamp = bulk_status === 'pending';
+
       await prisma.$transaction(async (tx) => {
         if (csoIdArray.length > 0) {
-          await tx.orders.updateMany({
-            where: { id: { in: csoIdArray } },
-            data: { order_status: bulk_status }
-          });
+          await tx.$executeRawUnsafe(
+            buildStatusUpdateQuery('orders', csoIdArray, shouldRefreshTimestamp),
+            ...buildStatusUpdateParams(bulk_status, csoIdArray, shouldRefreshTimestamp),
+          );
           count += csoIdArray.length;
         }
 
         if (csoAutoIdArray.length > 0) {
-          await tx.orders_cso.updateMany({
-            where: { id: { in: csoAutoIdArray } },
-            data: { order_status: bulk_status }
-          });
+          await tx.$executeRawUnsafe(
+            buildStatusUpdateQuery('orders_cso', csoAutoIdArray, shouldRefreshTimestamp),
+            ...buildStatusUpdateParams(bulk_status, csoAutoIdArray, shouldRefreshTimestamp),
+          );
           count += csoAutoIdArray.length;
         }
 
         if (crmIdArray.length > 0) {
-          await tx.orders_crm.updateMany({
-            where: { id: { in: crmIdArray } },
-            data: { order_status: bulk_status }
-          });
+          await tx.$executeRawUnsafe(
+            buildStatusUpdateQuery('orders_crm', crmIdArray, shouldRefreshTimestamp),
+            ...buildStatusUpdateParams(bulk_status, crmIdArray, shouldRefreshTimestamp),
+          );
           count += crmIdArray.length;
         }
 
@@ -52,8 +72,8 @@ export async function POST(request: Request) {
               user_id: userId,
               action: 'Bulk Update Status',
               target: 'Pesanan',
-              details: `Mengubah ${count} pesanan menjadi status: ${bulk_status}`
-            }
+              details: `Mengubah ${count} pesanan menjadi status: ${bulk_status}`,
+            },
           });
         }
       });
@@ -61,12 +81,12 @@ export async function POST(request: Request) {
       await emitEvent('REFRESH_OLAHAN');
 
       return NextResponse.json({ status: 'success', message: `Berhasil update status ${count} pesanan.` });
+    }
 
-    } else if (action === 'bulk_delete') {
-      
+    if (action === 'bulk_delete') {
       const processDelete = async (tx: any, ids: number[], source: string) => {
         if (ids.length === 0) return;
-        
+
         let tOrders = '';
         let tItems = '';
 
@@ -87,7 +107,7 @@ export async function POST(request: Request) {
 
           if (whId) {
             const items: any[] = await tx.$queryRawUnsafe(`SELECT product_id, qty, is_gift, is_bundle FROM ${tItems} WHERE order_id = ?`, deleteId);
-            
+
             for (const item of items) {
               const isGiftItem = item.is_gift ? 1 : 0;
               const isBundleItem = item.is_bundle ? 1 : 0;
@@ -125,8 +145,8 @@ export async function POST(request: Request) {
               user_id: userId,
               action: 'Bulk Delete',
               target: 'Pesanan',
-              details: `Menghapus ${count} pesanan massal`
-            }
+              details: `Menghapus ${count} pesanan massal`,
+            },
           });
         }
       });
@@ -137,7 +157,6 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ status: 'error', message: 'Action tidak dikenal.' }, { status: 400 });
-
   } catch (error: any) {
     console.error('Error action olahan:', error);
     return NextResponse.json({ status: 'error', message: error.message }, { status: 500 });

@@ -23,6 +23,7 @@ export async function GET(request: Request) {
     const startDate = searchParams.get('start_date') || '';
     const endDate = searchParams.get('end_date') || '';
     const status = searchParams.get('status') || '';
+    const creatorName = searchParams.get('creator_name') || '';
 
     const [ordersCsoHasAdvertiser, ordersCsoHasAdSource, ordersCrmHasAdvertiser, ordersCrmHasAdSource] = await Promise.all([
       hasColumn('orders_cso', 'advertiser_name'),
@@ -51,6 +52,10 @@ export async function GET(request: Request) {
       conditionQuery += ` AND order_status = ?`;
       params.push(status);
     }
+    if (creatorName) {
+      conditionQuery += ` AND creator_name = ?`;
+      params.push(creatorName);
+    }
 
     const rawQuery = `
       SELECT * FROM (
@@ -70,6 +75,10 @@ export async function GET(request: Request) {
             s.courier_service,
             s.tracking_number as resi,
             p.fat_proof_url as id_reff,
+            CASE
+                WHEN cu.role = 'admin' THEN NULL
+                ELSE COALESCE(NULLIF(cu.name, ''), NULLIF(cu.email, ''))
+            END as creator_name,
             'CSO' as source_table,
             CASE 
                 WHEN o.notes LIKE '[RESEND]%' THEN 'RESEND'
@@ -84,6 +93,7 @@ export async function GET(request: Request) {
         ) oi ON o.id = oi.order_id
         LEFT JOIN payments p ON o.id = p.order_id
         LEFT JOIN shipments s ON o.id = s.order_id
+        LEFT JOIN users cu ON cu.id = o.created_by_user_id
         WHERE (p.payment_method IS NULL OR p.payment_method != 'bank_transfer' OR p.payment_status = 'paid')
         
         UNION ALL
@@ -104,6 +114,10 @@ export async function GET(request: Request) {
             s.courier_service,
             s.tracking_number as resi,
             p.fat_proof_url as id_reff,
+            CASE
+                WHEN cu.role = 'admin' THEN NULL
+                ELSE COALESCE(NULLIF(cu.name, ''), NULLIF(cu.email, ''))
+            END as creator_name,
             'CSO_AUTO' as source_table,
             'CSO' as source_label
         FROM orders_cso o
@@ -115,6 +129,7 @@ export async function GET(request: Request) {
         ) oi ON o.id = oi.order_id
         LEFT JOIN payments_cso p ON o.id = p.order_id
         LEFT JOIN shipments_cso s ON o.id = s.order_id
+        LEFT JOIN users cu ON cu.id = o.created_by_user_id
         WHERE (p.payment_method IS NULL OR p.payment_method != 'bank_transfer' OR p.payment_status = 'paid')
         
         UNION ALL
@@ -135,6 +150,10 @@ export async function GET(request: Request) {
             s.courier_service,
             s.tracking_number as resi,
             p.fat_proof_url as id_reff,
+            CASE
+                WHEN cu.role = 'admin' THEN NULL
+                ELSE COALESCE(NULLIF(cu.name, ''), NULLIF(cu.email, ''))
+            END as creator_name,
             'CRM' as source_table,
             'CRM' as source_label
         FROM orders_crm o
@@ -146,6 +165,7 @@ export async function GET(request: Request) {
         ) oi ON o.id = oi.order_id
         LEFT JOIN payments_crm p ON o.id = p.order_id
         LEFT JOIN shipments_crm s ON o.id = s.order_id
+        LEFT JOIN users cu ON cu.id = o.created_by_user_id
         WHERE (p.payment_method IS NULL OR p.payment_method != 'bank_transfer' OR p.payment_status = 'paid')
       ) as combined_orders
       WHERE 1=1 ${conditionQuery}

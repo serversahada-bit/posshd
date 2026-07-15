@@ -121,7 +121,7 @@ const formatExcelDateTime = (value: unknown): string => {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { startDate, endDate, status, selectedIds } = body;
+    const { startDate, endDate, status, creatorName, selectedIds } = body;
 
     const [ordersCsoHasAdvertiser, ordersCsoHasAdSource, ordersCrmHasAdvertiser, ordersCrmHasAdSource] = await Promise.all([
       hasColumn('orders_cso', 'advertiser_name'),
@@ -179,6 +179,10 @@ export async function POST(request: Request) {
         conditionQuery += ` AND order_status = ?`;
         params.push(status);
       }
+      if (creatorName) {
+        conditionQuery += ` AND creator_name = ?`;
+        params.push(creatorName);
+      }
     }
 
     const rawQuery = `
@@ -193,6 +197,7 @@ export async function POST(request: Request) {
               p.payment_method,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
+              w.code as warehouse_code,
               0 as is_ro, 0 as ro_count,
               'CSO' as source_table,
               COALESCE(NULLIF(cu.email, ''), NULLIF(cu.name, ''), (SELECT COALESCE(NULLIF(u.email, ''), NULLIF(u.name, '')) FROM activity_logs a JOIN users u ON a.user_id = u.id WHERE a.details LIKE CONCAT('%(Order: ', o.order_code, ',%') OR a.details LIKE CONCAT('%(Order: ', o.order_code, ')%') ORDER BY a.id DESC LIMIT 1), 'User') as creator_name
@@ -215,6 +220,7 @@ export async function POST(request: Request) {
               p.payment_method,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
+              w.code as warehouse_code,
               COALESCE(o.is_ro, 0) as is_ro, COALESCE(o.ro_count, 0) as ro_count,
               'CSO_AUTO' as source_table,
               COALESCE(NULLIF(cu.email, ''), NULLIF(cu.name, ''), (SELECT COALESCE(NULLIF(u.email, ''), NULLIF(u.name, '')) FROM activity_logs a JOIN users u ON a.user_id = u.id WHERE a.details LIKE CONCAT('%(Order: ', o.order_code, ',%') OR a.details LIKE CONCAT('%(Order: ', o.order_code, ')%') ORDER BY a.id DESC LIMIT 1), 'User') as creator_name
@@ -237,6 +243,7 @@ export async function POST(request: Request) {
               p.payment_method,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
+              w.code as warehouse_code,
               COALESCE(o.is_ro, 0) as is_ro, COALESCE(o.ro_count, 0) as ro_count,
               'CRM' as source_table,
               COALESCE(NULLIF(cu.email, ''), NULLIF(cu.name, ''), (SELECT COALESCE(NULLIF(u.email, ''), NULLIF(u.name, '')) FROM activity_logs a JOIN users u ON a.user_id = u.id WHERE a.details LIKE CONCAT('%(Order: ', o.order_code, ',%') OR a.details LIKE CONCAT('%(Order: ', o.order_code, ')%') ORDER BY a.id DESC LIMIT 1), 'User') as creator_name
@@ -455,7 +462,8 @@ export async function POST(request: Request) {
         advSourcePart = ':-';
       }
 
-      const keteranganStr = `J.${csAdvStr}${advSourcePart}.${ongkirVal}.${fee}.${diskonVal}.${roVal}.${promoVal}`;
+      const warehouseCode = (order.warehouse_code || 'J').toString().trim() || 'J';
+      const keteranganStr = `${warehouseCode}.${csAdvStr}${advSourcePart}.${ongkirVal}.${fee}.${diskonVal}.${roVal}.${promoVal}`;
 
       let isiPaketShort = productString;
       if (giftItems.length > 0) {
@@ -557,4 +565,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: 'error', message: error.message }, { status: 500 });
   }
 }
+
+
 

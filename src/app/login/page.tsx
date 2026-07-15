@@ -8,12 +8,12 @@ import { useAuth } from '@/contexts/AuthContext';
 export default function LoginPage() {
   const router = useRouter();
   const { login, isAuthenticated } = useAuth();
-  const rememberedEmail = typeof window === 'undefined' ? '' : (localStorage.getItem('pos-remember-email') ?? '');
+  const rememberedUsername = typeof window === 'undefined' ? '' : (localStorage.getItem('pos-remember-username') ?? '');
 
-  const [email, setEmail] = useState(rememberedEmail);
+  const [username, setUsername] = useState(rememberedUsername);
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(Boolean(rememberedEmail));
+  const [rememberMe, setRememberMe] = useState(Boolean(rememberedUsername));
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -28,20 +28,21 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
 
-    if (!email || !password) {
-      setError('Email dan password harus diisi.');
+    if (!username || !password) {
+      setError('Username dan password harus diisi.');
       setLoading(false);
       return;
     }
 
-    const result = await login(email, password);
+    const result = await login(username, password);
 
     if (result.success) {
       if (rememberMe) {
-        localStorage.setItem('pos-remember-email', email);
+        localStorage.setItem('pos-remember-username', username.trim());
       } else {
-        localStorage.removeItem('pos-remember-email');
+        localStorage.removeItem('pos-remember-username');
       }
+      localStorage.removeItem('pos-remember-email');
       router.push('/');
       return;
     }
@@ -83,7 +84,7 @@ export default function LoginPage() {
               <p className="login-card__eyebrow">Point Of Sale</p>
               <h2 className="login-card__title">Masuk ke sistem</h2>
               <p className="login-card__text">
-                Gunakan akun kamu untuk masuk ke panel GreatSales.
+                Gunakan username akun kamu untuk masuk ke panel GreatSales.
               </p>
             </div>
 
@@ -96,18 +97,18 @@ export default function LoginPage() {
 
             <form onSubmit={handleSubmit} className="login-form">
               <div className="form-group">
-                <label htmlFor="login-email" className="form-label">
-                  Email / Username
+                <label htmlFor="login-username" className="form-label">
+                  Username
                 </label>
                 <input
-                  id="login-email"
+                  id="login-username"
                   type="text"
-                  name="email"
+                  name="username"
                   required
                   autoComplete="username"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Contoh: admin"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Contoh: min"
                   className="form-input"
                 />
               </div>
@@ -174,24 +175,24 @@ export default function LoginPage() {
               <div className="login-demo__actions">
                 <button
                   type="button"
-                  onClick={() => { setEmail('admin'); setPassword('admin123'); }}
+                  onClick={() => { setUsername('min'); setPassword('admin'); }}
                   className="pill-btn"
                 >
                   Admin
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setEmail('kasir'); setPassword('kasir123'); }}
+                  onClick={() => { setUsername('arga'); setPassword('arga'); }}
                   className="pill-btn"
                 >
-                  Kasir
+                  CS
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setEmail('owner'); setPassword('owner123'); }}
+                  onClick={() => { setUsername('erma'); setPassword('erma'); }}
                   className="pill-btn"
                 >
-                  Owner
+                  CRM
                 </button>
               </div>
             </div>
