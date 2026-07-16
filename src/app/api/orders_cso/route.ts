@@ -10,6 +10,10 @@ import { cookies } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
 
+type NoPaymentMethodRow = {
+  method_name: string;
+};
+
 async function hasColumn(tableName: string, columnName: string) {
   const rows = await prisma.$queryRaw<Array<{ total: bigint | number }>>`
     SELECT COUNT(*) AS total
@@ -319,14 +323,18 @@ export async function POST(request: Request) {
             accountNo = acc.account_number;
           }
         }
-      } else if (paymentMethod === 'free') {
-        const noPaymentId = parseInt(formData.get('no_payment_method_id') as string, 10);
-        if (noPaymentId) {
-          const method = await tx.no_payment_methods.findUnique({ where: { id: noPaymentId } });
-          if (method) {
-            bankName = method.method_name;
-            accountName = method.description;
-          }
+      } else if (paymentMethod === 'free' && noPaymentMethodId) {
+        const methods = await tx.$queryRawUnsafe<NoPaymentMethodRow[]>(
+          'SELECT method_name FROM no_payment_methods WHERE id = ? LIMIT 1',
+          noPaymentMethodId,
+        );
+        const method = methods[0];
+        if (method) {
+          bankName = method.method_name;
+          accountName = 'No Payment';
+          accountNo = '-';
+        }
+      }
         }
       }
 

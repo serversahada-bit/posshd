@@ -10,6 +10,10 @@ import { cookies } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
 
+type NoPaymentMethodRow = {
+  method_name: string;
+};
+
 const pad2 = (value: number) => String(value).padStart(2, '0');
 
 function getPaymentCode(paymentMethod: string) {
@@ -135,6 +139,7 @@ export async function POST(request: Request) {
     const warehouseId = parseInt(formData.get('warehouse_id') as string, 10);
     const courierName = formData.get('courier_name') as string;
     const paymentMethod = formData.get('payment_method') as string;
+    const noPaymentMethodId = parseInt(formData.get('no_payment_method_id') as string, 10) || 0;
     const notes = formData.get('notes') as string;
     const roCount = parseInt(formData.get('ro_count') as string, 10) || 0;
     const isRo = roCount > 0 ? true : false;
@@ -277,6 +282,21 @@ export async function POST(request: Request) {
             accountName = acc.account_name;
             accountNo = acc.account_number;
           }
+        }
+      }
+
+      if (paymentMethod === 'free' && noPaymentMethodId) {
+        const methods = await tx.$queryRawUnsafe<NoPaymentMethodRow[]>(
+          'SELECT method_name FROM no_payment_methods WHERE id = ? LIMIT 1',
+          noPaymentMethodId,
+        );
+        const method = methods[0];
+        if (method) {
+          bankName = method.method_name;
+          accountName = 'No Payment';
+          accountNo = '-';
+        }
+      }
         }
       }
 
