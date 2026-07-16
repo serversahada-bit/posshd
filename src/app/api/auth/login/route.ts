@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 
+type LoginUserRow = {
+  id: number;
+  name: string;
+  email: string;
+  password: string;
+  role: string | null;
+  permissions: string | null;
+};
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -17,16 +26,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const rows = await prisma.$queryRawUnsafe<Array<{
-      id: number;
-      name: string;
-      email: string;
-      password: string;
-      role: string | null;
-      permissions: string | null;
-      photo_url: string | null;
-    }>>(
-      'SELECT id, name, email, password, role, permissions, photo_url FROM users WHERE email = ? LIMIT 1',
+    const rows = await prisma.$queryRawUnsafe<LoginUserRow[]>(
+      'SELECT id, name, email, password, role, permissions FROM users WHERE email = ? LIMIT 1',
       username,
     );
 
@@ -45,7 +46,7 @@ export async function POST(request: NextRequest) {
       email: user.email,
       role: user.role,
       permissions: user.permissions ? JSON.parse(user.permissions) : [],
-      photo_url: user.photo_url,
+      photo_url: null,
     };
 
     const response = NextResponse.json({ success: true, data: sessionUser });
@@ -59,9 +60,13 @@ export async function POST(request: NextRequest) {
 
     return response;
   } catch (error) {
-    console.error('[API /auth/login]', error);
+    console.error('[API /auth/login]', {
+      error,
+      databaseUrlExists: Boolean(process.env.DATABASE_URL),
+    });
+
     return NextResponse.json(
-      { success: false, message: 'Terjadi kesalahan server. Pastikan database db_sahada_order aktif.' },
+      { success: false, message: 'Terjadi kesalahan server. Periksa koneksi database aplikasi.' },
       { status: 500 }
     );
   }

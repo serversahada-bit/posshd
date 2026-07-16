@@ -1,11 +1,6 @@
 import { NextRequest } from 'next/server';
 import prisma from '@/lib/db';
 import { users_role } from '@prisma/client';
-import { writeFile, mkdir, unlink } from 'fs/promises';
-import path from 'path';
-import { existsSync } from 'fs';
-
-const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads', 'users');
 
 type UserPayload = {
   id?: number;
@@ -14,7 +9,6 @@ type UserPayload = {
   password?: string;
   role: users_role;
   permissions?: string[];
-  existing_photo_url?: string | null;
 };
 
 type UserRow = {
@@ -23,7 +17,6 @@ type UserRow = {
   email: string;
   role: users_role | null;
   permissions: string | null;
-  photo_url: string | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -49,83 +42,36 @@ const serializeUser = (user: UserRow) => ({
   ...user,
   role: (user.role ?? 'admin') as users_role,
   permissions: user.permissions ? JSON.parse(user.permissions) : [],
+  photo_url: null,
 });
 
-const removeStoredFile = async (storedUrl: string | null | undefined) => {
-  if (!storedUrl) return;
-
-  try {
-    const relativePath = storedUrl.replace(/^\/+/, '').replace(/\//g, path.sep);
-    const filePath = path.join(process.cwd(), 'public', relativePath);
-    if (existsSync(filePath)) {
-      await unlink(filePath);
-    }
-  } catch (error) {
-    console.error('Failed to delete user photo', error);
-  }
-};
-
-async function uploadPhoto(file: File | null, existingUrl: string | null = null): Promise<string | null> {
-  if (!file || typeof file === 'string' || file.size === 0) {
-    return existingUrl;
-  }
-
-  if (!existsSync(UPLOAD_DIR)) {
-    await mkdir(UPLOAD_DIR, { recursive: true });
-  }
-
-  const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
-  const allowedExts = ['jpg', 'jpeg', 'png', 'webp'];
-  if (!allowedExts.includes(ext)) {
-    throw new Error('Foto profil harus berupa JPG, JPEG, PNG, atau WEBP.');
-  }
-
-  const bytes = await file.arrayBuffer();
-  const buffer = Buffer.from(bytes);
-  const filename = `user_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const filepath = path.join(UPLOAD_DIR, filename);
-
-  await writeFile(filepath, buffer);
-  await removeStoredFile(existingUrl);
-
-  return `/uploads/users/${filename}`;
-}
-
-const parseRequestBody = async (request: NextRequest): Promise<{ body: UserPayload; file: File | null }> => {
+const parseRequestBody = async (request: NextRequest): Promise<UserPayload> => {
   if (request.headers.get('content-type')?.includes('multipart/form-data')) {
     const formData = await request.formData();
     return {
-      body: {
-        id: formData.get('id') ? Number(formData.get('id')) : undefined,
-        name: String(formData.get('name') || '').trim(),
-        email: String(formData.get('email') || '').trim(),
-        password: String(formData.get('password') || ''),
-        role: String(formData.get('role') || 'cs') as users_role,
-        permissions: parsePermissions(formData.get('permissions')),
-        existing_photo_url: String(formData.get('existing_photo_url') || '') || null,
-      },
-      file: formData.get('photo') as File | null,
+      id: formData.get('id') ? Number(formData.get('id')) : undefined,
+      name: String(formData.get('name') || '').trim(),
+      email: String(formData.get('email') || '').trim(),
+      password: String(formData.get('password') || ''),
+      role: String(formData.get('role') || 'cs') as users_role,
+      permissions: parsePermissions(formData.get('permissions')),
     };
   }
 
   const json = await request.json() as UserPayload;
   return {
-    body: {
-      ...json,
-      id: json.id ? Number(json.id) : undefined,
-      name: String(json.name || '').trim(),
-      email: String(json.email || '').trim(),
-      password: String(json.password || ''),
-      permissions: parsePermissions(json.permissions),
-      existing_photo_url: json.existing_photo_url || null,
-    },
-    file: null,
+    ...json,
+    id: json.id ? Number(json.id) : undefined,
+    name: String(json.name || '').trim(),
+    email: String(json.email || '').trim(),
+    password: String(json.password || ''),
+    permissions: parsePermissions(json.permissions),
   };
 };
 
 const findUserByEmail = async (email: string) => {
   const rows = await prisma.$queryRawUnsafe<UserRow[]>(
-    'SELECT id, name, email, role, permissions, photo_url, created_at, updated_at FROM users WHERE email = ? LIMIT 1',
+    'SELECT id, name, email, role, permissions, created_at, updated_at FROM users WHERE email = ? LIMIT 1',
     email,
   );
   return rows[0] || null;
@@ -133,7 +79,7 @@ const findUserByEmail = async (email: string) => {
 
 const findUserById = async (id: number) => {
   const rows = await prisma.$queryRawUnsafe<UserRow[]>(
-    'SELECT id, name, email, role, permissions, photo_url, created_at, updated_at FROM users WHERE id = ? LIMIT 1',
+    'SELECT id, name, email, role, permissions, created_at, updated_at FROM users WHERE id = ? LIMIT 1',
     id,
   );
   return rows[0] || null;
@@ -142,7 +88,7 @@ const findUserById = async (id: number) => {
 export async function GET() {
   try {
     const users = await prisma.$queryRawUnsafe<UserRow[]>(
-      'SELECT id, name, email, role, permissions, photo_url, created_at, updated_at FROM users ORDER BY id DESC'
+      'SELECT id, name, email, role, permissions, created_at, updated_at FROM users ORDER BY id DESC'
     );
 
     return Response.json({
@@ -157,7 +103,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const { body, file } = await parseRequestBody(request);
+    const body = await parseRequestBody(request);
     const { name, email, password, role, permissions } = body;
 
     if (!name || !email || !password || !role) {
@@ -169,16 +115,13 @@ export async function POST(request: NextRequest) {
       return Response.json({ success: false, message: 'Email/Username sudah digunakan.' }, { status: 400 });
     }
 
-    const photoUrl = await uploadPhoto(file);
-
     await prisma.$executeRawUnsafe(
-      'INSERT INTO users (name, email, password, role, permissions, photo_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())',
+      'INSERT INTO users (name, email, password, role, permissions, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())',
       name,
       email,
       password,
       role,
       permissions?.length ? JSON.stringify(permissions) : null,
-      photoUrl,
     );
 
     const createdUser = await findUserByEmail(email);
@@ -191,8 +134,8 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const { body, file } = await parseRequestBody(request);
-    const { id, name, email, password, role, permissions, existing_photo_url } = body;
+    const body = await parseRequestBody(request);
+    const { id, name, email, password, role, permissions } = body;
 
     if (!id || !name || !email || !role) {
       return Response.json({ success: false, message: 'ID, nama, email, dan role wajib diisi' }, { status: 400 });
@@ -208,20 +151,14 @@ export async function PUT(request: NextRequest) {
       return Response.json({ success: false, message: 'Email/Username sudah digunakan oleh akun lain.' }, { status: 400 });
     }
 
-    let photoUrl = existing_photo_url || null;
-    if (file && file.size > 0) {
-      photoUrl = await uploadPhoto(file, existing_photo_url);
-    }
-
     const nextPassword = password ? password : null;
     await prisma.$executeRawUnsafe(
-      'UPDATE users SET name = ?, email = ?, password = COALESCE(?, password), role = ?, permissions = ?, photo_url = ?, updated_at = NOW() WHERE id = ?',
+      'UPDATE users SET name = ?, email = ?, password = COALESCE(?, password), role = ?, permissions = ?, updated_at = NOW() WHERE id = ?',
       name,
       email,
       nextPassword,
       role,
       permissions?.length ? JSON.stringify(permissions) : null,
-      photoUrl,
       Number(id),
     );
 
@@ -241,9 +178,6 @@ export async function DELETE(request: NextRequest) {
     if (!id) {
       return Response.json({ success: false, message: 'ID user wajib diisi' }, { status: 400 });
     }
-
-    const user = await findUserById(Number(id));
-    await removeStoredFile(user?.photo_url);
 
     await prisma.$executeRawUnsafe('DELETE FROM users WHERE id = ?', Number(id));
 
