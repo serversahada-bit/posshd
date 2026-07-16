@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertCircle, Eye, EyeOff, LogIn } from 'lucide-react';
@@ -57,7 +58,7 @@ export default function LoginPage() {
         <section className="login-showcase">
           <div>
             <div className="login-showcase__mark">
-              GS
+              <Image src="/app-logo.png" alt="GreatSales logo" fill className="login-showcase__logo" sizes="64px" />
             </div>
             <p className="login-showcase__eyebrow">GreatSales</p>
             <h1 className="login-showcase__title">

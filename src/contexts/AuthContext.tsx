@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useSyncExternalStore, ReactNode } from 'react';
 import { User } from '@/types';
 import { AuthState } from '@/types/auth';
 import { useRouter } from 'next/navigation';
@@ -11,24 +11,62 @@ interface AuthContextType extends AuthState {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const SESSION_KEY = 'sahada-pos-session';
+const AUTH_UPDATED_EVENT = 'sahada-auth-updated';
+
+const emptyAuth: AuthState = { user: null, isAuthenticated: false };
+let lastSnapshotRaw: string | null = null;
+let lastSnapshotValue: AuthState = emptyAuth;
+
+const getServerSnapshot = () => emptyAuth;
+
+const readStoredSession = (): AuthState => {
+  if (typeof window === 'undefined') {
+    return emptyAuth;
+  }
+
+  const stored = localStorage.getItem(SESSION_KEY);
+  if (!stored) {
+    lastSnapshotRaw = null;
+    lastSnapshotValue = emptyAuth;
+    return lastSnapshotValue;
+  }
+
+  if (stored === lastSnapshotRaw) {
+    return lastSnapshotValue;
+  }
+
+  try {
+    const user = JSON.parse(stored) as User;
+    lastSnapshotRaw = stored;
+    lastSnapshotValue = { user, isAuthenticated: true };
+    return lastSnapshotValue;
+  } catch {
+    localStorage.removeItem(SESSION_KEY);
+    lastSnapshotRaw = null;
+    lastSnapshotValue = emptyAuth;
+    return lastSnapshotValue;
+  }
+};
+
+const subscribeAuth = (onStoreChange: () => void) => {
+  if (typeof window === 'undefined') {
+    return () => undefined;
+  }
+
+  const handleChange = () => onStoreChange();
+  window.addEventListener('storage', handleChange);
+  window.addEventListener(AUTH_UPDATED_EVENT, handleChange);
+
+  return () => {
+    window.removeEventListener('storage', handleChange);
+    window.removeEventListener(AUTH_UPDATED_EVENT, handleChange);
+  };
+};
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [auth, setAuth] = useState<AuthState>({ user: null, isAuthenticated: false });
-  const [loading, setLoading] = useState(true);
+  const auth = useSyncExternalStore(subscribeAuth, readStoredSession, getServerSnapshot);
   const router = useRouter();
-
-  useEffect(() => {
-    const stored = localStorage.getItem('sahada-pos-session');
-    if (stored) {
-      try {
-        const user = JSON.parse(stored);
-        setAuth({ user, isAuthenticated: true });
-      } catch {
-        localStorage.removeItem('sahada-pos-session');
-      }
-    }
-    setLoading(false);
-  }, []);
 
   const login = async (username: string, password: string): Promise<{ success: boolean; message: string }> => {
     try {
@@ -47,9 +85,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           email: json.data.email,
           role: json.data.role,
           permissions: json.data.permissions,
+          photo_url: json.data.photo_url ?? null,
         };
-        localStorage.setItem('sahada-pos-session', JSON.stringify(sessionUser));
-        setAuth({ user: sessionUser, isAuthenticated: true });
+        const nextRaw = JSON.stringify(sessionUser);
+        localStorage.setItem(SESSION_KEY, nextRaw);
+        lastSnapshotRaw = nextRaw;
+        lastSnapshotValue = { user: sessionUser, isAuthenticated: true };
+        window.dispatchEvent(new Event(AUTH_UPDATED_EVENT));
         return { success: true, message: 'Login berhasil' };
       }
 
@@ -61,12 +103,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const logout = () => {
     void fetch('/api/auth/logout', { method: 'POST' });
-    localStorage.removeItem('sahada-pos-session');
-    setAuth({ user: null, isAuthenticated: false });
+    localStorage.removeItem(SESSION_KEY);
+    lastSnapshotRaw = null;
+    lastSnapshotValue = emptyAuth;
+    window.dispatchEvent(new Event(AUTH_UPDATED_EVENT));
     router.push('/login');
   };
-
-  if (loading) return null;
 
   return (
     <AuthContext.Provider value={{ ...auth, login, logout }}>

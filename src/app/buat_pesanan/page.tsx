@@ -228,17 +228,20 @@ export default function BuatPesananPage() {
   };
 
   const totals = calculateTotals();
-  const totalPayment = Math.max(0, totals.subtotalProducts - Number(productDiscount) + Number(shippingCost) + Number(manualFeeCod) + Number(otherFee));
+  const selectedNoPaymentMethod = data?.noPaymentMethods.find((item: any) => String(item.id) === noPaymentMethodId);
+  const noShippingCostForFreeMethod = paymentMethod === 'free' && Boolean(selectedNoPaymentMethod?.no_shipping_cost);
+  const effectiveShippingCost = noShippingCostForFreeMethod ? 0 : Number(shippingCost);
+  const totalPayment = Math.max(0, totals.subtotalProducts - Number(productDiscount) + effectiveShippingCost + Number(manualFeeCod) + Number(otherFee));
 
   // Auto-calculate COD fee when relevant fields change
   useEffect(() => {
     if (paymentMethod === 'cod') {
-      const computedCodFee = Math.round((totals.subtotalProducts + Number(shippingCost)) * 0.03);
+      const computedCodFee = Math.round((totals.subtotalProducts + effectiveShippingCost) * 0.03);
       setManualFeeCod(computedCodFee);
     } else {
       setManualFeeCod(0);
     }
-  }, [paymentMethod, totals.subtotalProducts, shippingCost]);
+  }, [paymentMethod, totals.subtotalProducts, effectiveShippingCost]);
 
   const getValidWarehouses = () => {
     if (!data) return [];
@@ -424,7 +427,7 @@ export default function BuatPesananPage() {
 
     fd.append('total_product_price', totals.subtotalProducts.toString());
     fd.append('product_discount', productDiscount.toString());
-    fd.append('shipping_cost', shippingCost.toString());
+    fd.append('shipping_cost', effectiveShippingCost.toString());
     fd.append('manual_fee_cod', manualFeeCod.toString());
     fd.append('other_fee', otherFee.toString());
     fd.append('total_payment', totalPayment.toString());
@@ -434,7 +437,7 @@ export default function BuatPesananPage() {
     fd.append('payment_method', paymentMethod);
 
     if (paymentMethod === 'bank_transfer') fd.append('payment_account_id', paymentAccountId);
-    if (paymentMethod === 'free') fd.append('payment_account_id', noPaymentMethodId);
+    if (paymentMethod === 'free') fd.append('no_payment_method_id', noPaymentMethodId);
     if (paymentProofFile) fd.append('payment_proof', paymentProofFile);
 
     cart.forEach(c => {
@@ -795,6 +798,11 @@ export default function BuatPesananPage() {
                         {data?.noPaymentMethods.map(p => <option key={p.id} value={p.id}>{p.method_name}</option>)}
                       </select>
                     </div>
+                    {noShippingCostForFreeMethod && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
+                        Metode ini tidak membebankan ongkos kirim.
+                      </div>
+                    )}
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">Upload Bukti Approval</label>
                       <input type="file" accept="image/*" onChange={e => {
@@ -822,7 +830,7 @@ export default function BuatPesananPage() {
 
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-slate-500 font-medium">Ongkos Kirim</span>
-                  <span className="font-bold text-slate-800">Rp {formatCurrency(shippingCost)}</span>
+                  <span className="font-bold text-slate-800">Rp {formatCurrency(effectiveShippingCost)}</span>
                 </div>
 
                 {paymentMethod === 'cod' && (

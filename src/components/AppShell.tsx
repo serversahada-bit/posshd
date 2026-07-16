@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
@@ -62,6 +63,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
               </button>
+              <div className="app-shell__mobile-logo">
+                <Image src="/app-logo.png" alt="GreatSales logo" fill className="app-shell__mobile-logo-image" sizes="36px" />
+              </div>
               <div>
                 <p className="app-shell__mobile-title">GreatSales</p>
                 <p className="app-shell__mobile-subtitle">POS Panel</p>

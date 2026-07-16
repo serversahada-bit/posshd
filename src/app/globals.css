@@ -139,16 +139,18 @@ textarea {
 }
 
 .sidebar__brand-mark {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 16px;
-  background: #4c1d95;
-  color: #fff;
-  font-size: 14px;
-  font-weight: 700;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.sidebar__brand-image {
+  object-fit: contain;
 }
 
 .sidebar__brand-title {
@@ -343,11 +345,20 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
   border-radius: 16px;
   background: #4c1d95;
   color: #fff;
   font-size: 14px;
   font-weight: 700;
+}
+
+.sidebar__avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .sidebar__user-body {
@@ -540,16 +551,13 @@ textarea {
 }
 
 .login-showcase__mark {
-  width: 48px;
-  height: 48px;
+  width: 52px;
+  height: 52px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.1);
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: 0.18em;
+  position: relative;
+  overflow: hidden;
 }
 
 .login-showcase__eyebrow {
@@ -1184,6 +1192,18 @@ textarea {
     gap: 12px;
   }
 
+  .app-shell__mobile-logo {
+    position: relative;
+    width: 38px;
+    height: 38px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  .app-shell__mobile-logo-image {
+    object-fit: contain;
+  }
+
   .app-shell__mobile-button {
     width: 40px;
     height: 40px;
@@ -1276,4 +1296,8 @@ textarea {
   .akuisisi-cart-row__total {
     justify-content: space-between;
   }
+}
+
+.login-showcase__logo {
+  object-fit: cover;
 }

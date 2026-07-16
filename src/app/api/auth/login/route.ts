@@ -17,9 +17,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const user = await prisma.users.findUnique({
-      where: { email: username },
-    });
+    const rows = await prisma.$queryRawUnsafe<Array<{
+      id: number;
+      name: string;
+      email: string;
+      password: string;
+      role: string | null;
+      permissions: string | null;
+      photo_url: string | null;
+    }>>(
+      'SELECT id, name, email, password, role, permissions, photo_url FROM users WHERE email = ? LIMIT 1',
+      username,
+    );
+
+    const user = rows[0];
 
     if (!user || user.password !== password) {
       return NextResponse.json(
@@ -34,6 +45,7 @@ export async function POST(request: NextRequest) {
       email: user.email,
       role: user.role,
       permissions: user.permissions ? JSON.parse(user.permissions) : [],
+      photo_url: user.photo_url,
     };
 
     const response = NextResponse.json({ success: true, data: sessionUser });

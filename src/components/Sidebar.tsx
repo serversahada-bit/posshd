@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
@@ -11,7 +12,6 @@ import {
     ShoppingCart, 
     CheckSquare, 
     PackageOpen, 
-    History, 
     Users, 
     Package, 
     Tag, 
@@ -127,7 +127,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
         <div className="sidebar__header">
             <div className="sidebar__brand">
                 <div className="sidebar__brand-mark">
-                    <span>GS</span>
+                    <Image src="/app-logo.png" alt="GreatSales logo" fill className="sidebar__brand-image" sizes="40px" />
                 </div>
                 <div>
                     <h2 className="sidebar__brand-title">GreatSales</h2>
@@ -249,7 +249,11 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
         <div className="sidebar__footer">
             <div className="sidebar__user">
                 <div className="sidebar__avatar">
-                    {roleInitial}
+                    {user?.photo_url ? (
+                      <Image src={user.photo_url} alt={user.name || 'User'} fill unoptimized className="sidebar__avatar-image" sizes="40px" />
+                    ) : (
+                      roleInitial
+                    )}
                 </div>
                 <div className="sidebar__user-body">
                     <p className="sidebar__user-name">{user?.name || 'User'}</p>

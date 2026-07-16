@@ -9,6 +9,10 @@ import { emitEvent } from '@/lib/socket-server';
 
 export const dynamic = 'force-dynamic';
 
+type NoPaymentMethodRow = {
+  method_name: string;
+};
+
 function generateOrderCode() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let result = 'CSO';
@@ -89,6 +93,7 @@ export async function POST(request: Request) {
     const warehouseId = parseInt(formData.get('warehouse_id') as string, 10);
     const courierName = formData.get('courier_name') as string;
     const paymentMethod = formData.get('payment_method') as string;
+    const noPaymentMethodId = parseInt(formData.get('no_payment_method_id') as string, 10) || 0;
     const notes = formData.get('notes') as string;
     const advertiserName = formData.get('advertiser_name') as string;
     const adSource = formData.get('ad_source') as string;
@@ -248,6 +253,19 @@ export async function POST(request: Request) {
             accountName = acc.account_name;
             accountNo = acc.account_number;
           }
+        }
+      }
+
+      if (paymentMethod === 'free' && noPaymentMethodId) {
+        const methods = await tx.$queryRawUnsafe<NoPaymentMethodRow[]>(
+          'SELECT method_name FROM no_payment_methods WHERE id = ? LIMIT 1',
+          noPaymentMethodId,
+        );
+        const method = methods[0];
+        if (method) {
+          bankName = method.method_name;
+          accountName = 'No Payment';
+          accountNo = '-';
         }
       }
 

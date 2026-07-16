@@ -9,6 +9,7 @@ type NoPaymentMethod = {
   method_name: string;
   description: string | null;
   is_active: boolean | null;
+  no_shipping_cost: boolean | null;
 };
 
 type NoPaymentResponse = {
@@ -21,12 +22,14 @@ type FormState = {
   method_name: string;
   description: string;
   is_active: boolean;
+  no_shipping_cost: boolean;
 };
 
 const emptyForm: FormState = {
   method_name: '',
   description: '',
   is_active: true,
+  no_shipping_cost: false,
 };
 
 const getErrorMessage = (error: unknown) => (error instanceof Error ? error.message : 'Terjadi kesalahan');
@@ -77,6 +80,7 @@ export default function SettingNoPaymentPage() {
       method_name: method.method_name,
       description: method.description ?? '',
       is_active: Boolean(method.is_active),
+      no_shipping_cost: Boolean(method.no_shipping_cost),
     });
     setIsModalOpen(true);
   };
@@ -102,6 +106,7 @@ export default function SettingNoPaymentPage() {
           method_name: form.method_name,
           description: form.description,
           is_active: form.is_active,
+          no_shipping_cost: form.no_shipping_cost,
         }),
       });
 
@@ -177,6 +182,7 @@ export default function SettingNoPaymentPage() {
                 <th className="w-12 p-4 text-center text-xs font-semibold uppercase tracking-wider text-slate-500">#</th>
                 <th className="p-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Nama Metode</th>
                 <th className="p-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Deskripsi</th>
+                <th className="p-4 text-center text-xs font-semibold uppercase tracking-wider text-slate-500">Tanpa Ongkir</th>
                 <th className="p-4 text-center text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
                 <th className="p-4 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Aksi</th>
               </tr>
@@ -184,13 +190,13 @@ export default function SettingNoPaymentPage() {
             <tbody className="divide-y divide-slate-200">
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="py-12 text-center text-sm text-slate-400">
+                  <td colSpan={6} className="py-12 text-center text-sm text-slate-400">
                     Memuat data...
                   </td>
                 </tr>
               ) : methods.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-12 text-center text-slate-400">
+                  <td colSpan={6} className="py-12 text-center text-slate-400">
                     <ReceiptText className="mx-auto mb-2 h-10 w-10 text-slate-300" />
                     Belum ada data metode No Payment.
                   </td>
@@ -201,6 +207,15 @@ export default function SettingNoPaymentPage() {
                     <td className="p-4 text-center font-medium text-slate-400">{index + 1}</td>
                     <td className="p-4 font-semibold text-slate-700">{row.method_name}</td>
                     <td className="p-4 text-slate-600">{row.description || '-'}</td>
+                    <td className="p-4 text-center">
+                      <span
+                        className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                          row.no_shipping_cost ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'
+                        }`}
+                      >
+                        {row.no_shipping_cost ? 'Ya' : 'Tidak'}
+                      </span>
+                    </td>
                     <td className="p-4 text-center">
                       <span
                         className={`rounded-full px-2 py-1 text-xs font-semibold ${
@@ -287,6 +302,16 @@ export default function SettingNoPaymentPage() {
                       className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
                     />
                     <span className="text-sm font-medium text-slate-700">Aktif</span>
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={form.no_shipping_cost}
+                      onChange={(event) => setForm((prev) => ({ ...prev, no_shipping_cost: event.target.checked }))}
+                      className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                    />
+                    <span className="text-sm font-medium text-slate-700">Tanpa biaya ongkir</span>
                   </label>
                 </div>
 

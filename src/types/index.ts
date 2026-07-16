@@ -11,6 +11,7 @@ export interface User {
   email: string;
   role: UserRole;
   permissions: string[] | null;
+  photo_url?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -78,7 +79,6 @@ export interface Order {
   notes: string | null;
   created_at?: string;
   updated_at?: string;
-  // Joined fields
   customer_name?: string;
 }
 
@@ -145,7 +145,7 @@ export interface RecentOrder {
 export interface CartItem {
   product: Product;
   quantity: number;
-  discount_pct: number; // persentase 0-100
+  discount_pct: number;
   subtotal: number;
 }
 

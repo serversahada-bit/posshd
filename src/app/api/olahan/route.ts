@@ -24,6 +24,7 @@ export async function GET(request: Request) {
     const endDate = searchParams.get('end_date') || '';
     const status = searchParams.get('status') || '';
     const creatorName = searchParams.get('creator_name') || '';
+    const warehouseId = searchParams.get('warehouse_id') || '';
 
     const [ordersCsoHasAdvertiser, ordersCsoHasAdSource, ordersCrmHasAdvertiser, ordersCrmHasAdSource] = await Promise.all([
       hasColumn('orders_cso', 'advertiser_name'),
@@ -56,6 +57,10 @@ export async function GET(request: Request) {
       conditionQuery += ` AND creator_name = ?`;
       params.push(creatorName);
     }
+    if (warehouseId) {
+      conditionQuery += ` AND warehouse_id = ?`;
+      params.push(warehouseId);
+    }
 
     const rawQuery = `
       SELECT * FROM (
@@ -67,6 +72,8 @@ export async function GET(request: Request) {
             o.advertiser_name,
             o.ad_source,
             o.notes,
+            o.warehouse_id,
+            w.warehouse_name,
             c.name as customer_name,
             c.whatsapp_number,
             c.desa,
@@ -85,6 +92,7 @@ export async function GET(request: Request) {
                 ELSE 'CSO AKUISISI'
             END as source_label
         FROM orders o
+        LEFT JOIN warehouses w ON w.id = o.warehouse_id
         LEFT JOIN customers c ON o.customer_id = c.id
         LEFT JOIN (
           SELECT order_id, GROUP_CONCAT(product_name SEPARATOR ', ') as product_names
@@ -106,6 +114,8 @@ export async function GET(request: Request) {
             ${ordersCsoAdvertiserSelect} as advertiser_name,
             ${ordersCsoAdSourceSelect} as ad_source,
             o.notes,
+            o.warehouse_id,
+            w.warehouse_name,
             c.name as customer_name,
             c.whatsapp_number,
             c.desa,
@@ -121,6 +131,7 @@ export async function GET(request: Request) {
             'CSO_AUTO' as source_table,
             'CSO' as source_label
         FROM orders_cso o
+        LEFT JOIN warehouses w ON w.id = o.warehouse_id
         LEFT JOIN customers c ON o.customer_id = c.id
         LEFT JOIN (
           SELECT order_id, GROUP_CONCAT(product_name SEPARATOR ', ') as product_names
@@ -142,6 +153,8 @@ export async function GET(request: Request) {
             ${ordersCrmAdvertiserSelect} as advertiser_name,
             ${ordersCrmAdSourceSelect} as ad_source,
             o.notes,
+            o.warehouse_id,
+            w.warehouse_name,
             c.name as customer_name,
             c.whatsapp_number,
             c.desa,
@@ -157,6 +170,7 @@ export async function GET(request: Request) {
             'CRM' as source_table,
             'CRM' as source_label
         FROM orders_crm o
+        LEFT JOIN warehouses w ON w.id = o.warehouse_id
         LEFT JOIN customers c ON o.customer_id = c.id
         LEFT JOIN (
           SELECT order_id, GROUP_CONCAT(product_name SEPARATOR ', ') as product_names
@@ -180,4 +194,3 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: 'error', message: error instanceof Error ? error.message : 'Gagal mengambil data olahan' }, { status: 500 });
   }
 }
-
