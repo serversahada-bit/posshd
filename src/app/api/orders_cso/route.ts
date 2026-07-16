@@ -335,8 +335,6 @@ export async function POST(request: Request) {
           accountNo = '-';
         }
       }
-        }
-      }
 
       const paymentStatus =
         paymentMethod === 'cod'

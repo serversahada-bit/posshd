@@ -297,8 +297,6 @@ export async function POST(request: Request) {
           accountNo = '-';
         }
       }
-        }
-      }
 
       await tx.payments_crm.create({
         data: {

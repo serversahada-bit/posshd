@@ -289,8 +289,6 @@ export async function POST(request: Request) {
           accountNo = '-';
         }
       }
-        }
-      }
 
       await tx.payments.create({
         data: {
