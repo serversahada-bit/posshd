@@ -24,11 +24,15 @@ function safeJson(data: unknown) {
 }
 
 async function hasColumn(tableName: string, columnName: string) {
-  const rows = await prisma.$queryRawUnsafe<Array<{ Field: string }>>(
-    `SHOW COLUMNS FROM ${tableName} LIKE ?`,
-    columnName,
-  );
-  return rows.length > 0;
+  const rows = await prisma.$queryRaw<Array<{ total: bigint | number }>>`
+    SELECT COUNT(*) AS total
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = ${tableName}
+      AND COLUMN_NAME = ${columnName}
+  `;
+
+  return Number(rows[0]?.total || 0) > 0;
 }
 
 async function resolveOrder(id: string, source: Source) {
