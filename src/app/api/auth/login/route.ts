@@ -8,7 +8,13 @@ type LoginUserRow = {
   password: string;
   role: string | null;
   permissions: string | null;
+  photo_url: string | null;
 };
+
+async function hasPhotoUrlColumn() {
+  const rows = await prisma.$queryRawUnsafe<Array<{ Field: string }>>("SHOW COLUMNS FROM users LIKE 'photo_url'");
+  return rows.length > 0;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -26,8 +32,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const photoColumnExists = await hasPhotoUrlColumn();
     const rows = await prisma.$queryRawUnsafe<LoginUserRow[]>(
-      'SELECT id, name, email, password, role, permissions FROM users WHERE email = ? LIMIT 1',
+      photoColumnExists
+        ? 'SELECT id, name, email, password, role, permissions, photo_url FROM users WHERE email = ? LIMIT 1'
+        : 'SELECT id, name, email, password, role, permissions, NULL AS photo_url FROM users WHERE email = ? LIMIT 1',
       username,
     );
 
@@ -46,7 +55,7 @@ export async function POST(request: NextRequest) {
       email: user.email,
       role: user.role,
       permissions: user.permissions ? JSON.parse(user.permissions) : [],
-      photo_url: null,
+      photo_url: user.photo_url ?? null,
     };
 
     const response = NextResponse.json({ success: true, data: sessionUser });
