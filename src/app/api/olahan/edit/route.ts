@@ -23,6 +23,14 @@ function safeJson(data: unknown) {
   return JSON.parse(JSON.stringify(data, (_, value) => typeof value === 'bigint' ? Number(value) : value));
 }
 
+async function hasColumn(tableName: string, columnName: string) {
+  const rows = await prisma.$queryRawUnsafe<Array<{ Field: string }>>(
+    `SHOW COLUMNS FROM ${tableName} LIKE ?`,
+    columnName,
+  );
+  return rows.length > 0;
+}
+
 async function resolveOrder(id: string, source: Source) {
   const t = tableMap[source];
   let rows = await prisma.$queryRawUnsafe<any[]>(`SELECT id, order_code FROM ${t.orders} WHERE order_code = ? LIMIT 1`, id);
@@ -42,6 +50,8 @@ export async function GET(request: Request) {
     const t = tableMap[source];
     const orderId = Number(resolved.id);
 
+    const hasNoShippingCost = await hasColumn('no_payment_methods', 'no_shipping_cost');
+
     const [orders, items, payments, shipments, products, gifts, bundles, warehouses, couriers, promos, advertisers, adSources, paymentAccounts, noPaymentMethods, productStocks, giftStocks] = await Promise.all([
       prisma.$queryRawUnsafe<any[]>(`SELECT o.*, c.name customer_name, c.whatsapp_number, c.email, c.address, c.province, c.city, c.subdistrict, c.desa, c.age, c.complaint FROM ${t.orders} o LEFT JOIN customers c ON c.id=o.customer_id WHERE o.id=? LIMIT 1`, orderId),
       prisma.$queryRawUnsafe<any[]>(`SELECT oi.*, COALESCE(pb.image_url,p.image_url,g.image_url) image_url FROM ${t.items} oi LEFT JOIN products p ON p.id=oi.product_id AND COALESCE(oi.is_gift,0)=0 AND COALESCE(oi.is_bundle,0)=0 LEFT JOIN gifts g ON g.id=oi.product_id AND oi.is_gift=1 LEFT JOIN product_bundles pb ON pb.id=oi.product_id AND oi.is_bundle=1 WHERE oi.order_id=?`, orderId),
@@ -56,7 +66,11 @@ export async function GET(request: Request) {
       prisma.advertisers.findMany({ where: { status: 'active' }, orderBy: { name: 'asc' } }),
       prisma.ad_sources.findMany({ where: { status: 'active' }, orderBy: { name: 'asc' } }),
       prisma.payment_accounts.findMany({ orderBy: { id: 'asc' } }),
-      prisma.no_payment_methods.findMany({ where: { is_active: true }, orderBy: { method_name: 'asc' } }),
+      prisma.$queryRawUnsafe<any[]>(
+        hasNoShippingCost
+          ? 'SELECT id, method_name, description, is_active, no_shipping_cost FROM no_payment_methods WHERE is_active = 1 ORDER BY method_name ASC'
+          : 'SELECT id, method_name, description, is_active, 0 AS no_shipping_cost FROM no_payment_methods WHERE is_active = 1 ORDER BY method_name ASC'
+      ),
       prisma.warehouse_stock.findMany(),
       prisma.warehouse_gift_stock.findMany(),
     ]);
@@ -65,7 +79,13 @@ export async function GET(request: Request) {
     if (!order.warehouse_id && shipments[0]?.warehouse_id) order.warehouse_id = shipments[0].warehouse_id;
     if (!order.courier_id && shipments[0]?.courier_name) order.courier_name = shipments[0].courier_name;
 
-    return NextResponse.json(safeJson({ status: 'success', data: { source, order, items, payment: payments[0] || null, shipment: shipments[0] || null, products, gifts, bundles, warehouses, couriers, promos, advertisers, adSources, paymentAccounts, noPaymentMethods, productStocks, giftStocks } }));
+    const normalizedNoPaymentMethods = noPaymentMethods.map((item: any) => ({
+      ...item,
+      is_active: Boolean(item.is_active),
+      no_shipping_cost: Boolean(item.no_shipping_cost),
+    }));
+
+    return NextResponse.json(safeJson({ status: 'success', data: { source, order, items, payment: payments[0] || null, shipment: shipments[0] || null, products, gifts, bundles, warehouses, couriers, promos, advertisers, adSources, paymentAccounts, noPaymentMethods: normalizedNoPaymentMethods, productStocks, giftStocks } }));
   } catch (error: any) {
     console.error('GET olahan edit:', error);
     return NextResponse.json({ status: 'error', message: error.message || 'Gagal memuat pesanan' }, { status: 500 });
