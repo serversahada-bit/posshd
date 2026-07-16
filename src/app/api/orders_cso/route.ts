@@ -151,6 +151,7 @@ export async function POST(request: Request) {
     const warehouseId = parseInt(formData.get('warehouse_id') as string, 10);
     const courierName = formData.get('courier_name') as string;
     const paymentMethod = formData.get('payment_method') as string;
+    const noPaymentMethodId = parseInt(formData.get('no_payment_method_id') as string, 10) || 0;
     const notes = formData.get('notes') as string;
     const advertiserName = formData.get('advertiser_name') as string;
     const adSource = formData.get('ad_source') as string;
