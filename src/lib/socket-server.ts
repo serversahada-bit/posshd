@@ -1,8 +1,25 @@
 import 'server-only';
 
+const normalizeServerSocketUrl = (rawUrl: string): string => {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith('ws://')) {
+    return `http://${trimmed.slice(5)}`;
+  }
+
+  if (trimmed.startsWith('wss://')) {
+    return `https://${trimmed.slice(6)}`;
+  }
+
+  return trimmed;
+};
+
 const getServerSocketUrl = (): string | null => {
   if (process.env.WS_URL) {
-    return process.env.WS_URL;
+    return normalizeServerSocketUrl(process.env.WS_URL);
   }
 
   if (process.env.NODE_ENV !== 'production') {

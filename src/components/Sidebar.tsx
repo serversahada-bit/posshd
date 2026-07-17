@@ -12,7 +12,6 @@ import {
     ShoppingCart, 
     CheckSquare, 
     PackageOpen, 
-    Users, 
     Package, 
     Tag, 
     UserCircle, 
@@ -94,7 +93,6 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
     const roleMapping: Record<string, string[]> = {
       'dashboard': ['finance', 'cs', 'cs_crm', 'warehouse'],
       'buat_pesanan': ['cs', 'cs_crm'],
-      'data_kostumer': ['cs', 'cs_crm'],
       'produk': ['warehouse'],
       'pembelian_terbaru': ['finance'],
       'olahan': ['finance'],
@@ -169,9 +167,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
                 )}
 
                 {hasAccess('validasi_fat') && <NavItem href="/validasi_pembayaran" icon={CheckSquare} label="Validasi FAT" active={pathname === '/validasi_pembayaran'} />}
-                {hasAccess('olahan') && <NavItem href="/olahan" icon={PackageOpen} label="Olahan" active={pathname === '/olahan'} />}
-
-                {hasAccess('data_kostumer') && <NavItem href="/data_kostumer" icon={Users} label="Data Kostumer" active={pathname === '/data_kostumer'} />}
+                {hasAccess('olahan') && <NavItem href="/olahan" icon={PackageOpen} label="Data Pesanan" active={pathname === '/olahan'} />}
                 </div>
             </div>
 

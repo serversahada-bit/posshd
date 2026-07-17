@@ -13,6 +13,8 @@ type OrderItem = {
   order_code: string;
   order_status: string;
   created_at: string;
+  processing_at: string | null;
+  last_update: string;
   advertiser_name: string | null;
   ad_source: string | null;
   notes: string | null;
@@ -98,7 +100,7 @@ export default function OlahanPage() {
       const json: OlahanResponse = await res.json();
 
       if (json.status !== 'success' || !json.data) {
-        throw new Error(json.message || 'Gagal mengambil data olahan');
+        throw new Error(json.message || 'Gagal mengambil data pesanan');
       }
 
       setData(json.data);
@@ -421,7 +423,7 @@ export default function OlahanPage() {
     <div className="h-full flex flex-col p-6 max-w-[1600px] mx-auto">
       <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Olahan</h1>
+          <h1 className="text-2xl font-bold text-slate-800">Data Pesanan</h1>
           <p className="text-sm text-slate-400 mt-1">Daftar semua data pesanan. Gunakan filter untuk mencari data tertentu.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -514,7 +516,9 @@ export default function OlahanPage() {
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="p-4 text-center w-12"><input type="checkbox" className="w-4 h-4 rounded border-slate-300 text-blue-600" onChange={handleSelectAll} checked={data.length > 0 && selectedIds.length === data.length} /></th>
-                <th className="p-4 font-semibold text-slate-600">Tanggal & Waktu</th>
+                <th className="p-4 font-semibold text-slate-600">Order Masuk</th>
+                <th className="p-4 font-semibold text-slate-600">Processing At</th>
+                <th className="p-4 font-semibold text-slate-600">Last Update</th>
                 <th className="p-4 font-semibold text-slate-600">ID Pesanan</th>
                 <th className="p-4 font-semibold text-slate-600">Data Pelanggan</th>
                 <th className="p-4 font-semibold text-slate-600">Nama Desa</th>
@@ -527,14 +531,14 @@ export default function OlahanPage() {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="text-center py-12">
+                  <td colSpan={11} className="text-center py-12">
                     <Loader2 className="w-8 h-8 text-blue-500 animate-spin mx-auto mb-2" />
                     <p className="text-slate-500 font-medium">Memuat data...</p>
                   </td>
                 </tr>
               ) : data.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="text-center py-12">
+                  <td colSpan={11} className="text-center py-12">
                     <Search className="w-10 h-10 text-slate-300 mx-auto mb-2" />
                     <p className="text-slate-500">Belum ada data pesanan yang cocok.</p>
                   </td>
@@ -546,6 +550,8 @@ export default function OlahanPage() {
                       <input type="checkbox" className="w-4 h-4 rounded border-slate-300 text-blue-600" checked={selectedIds.some((item) => item.id === row.order_id && item.source === row.source_table)} onChange={(event) => handleSelectOne(row.order_id, row.source_table, event.target.checked)} />
                     </td>
                     <td className="p-4 text-slate-500 text-xs align-top whitespace-nowrap">{formatDate(row.created_at)}</td>
+                    <td className="p-4 text-slate-500 text-xs align-top whitespace-nowrap">{row.processing_at ? formatDate(row.processing_at) : '-'}</td>
+                    <td className="p-4 text-slate-500 text-xs align-top whitespace-nowrap">{formatDate(row.last_update)}</td>
                     <td className="p-4 align-top">
                       <span className="font-bold text-slate-700">{row.order_code}</span>
                       <div className="flex flex-wrap items-center gap-1.5 mt-1">

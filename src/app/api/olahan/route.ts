@@ -1,21 +1,11 @@
 import { NextResponse } from 'next/server';
+
 import prisma from '@/lib/db';
+import { hasColumn } from '@/lib/orderTimestamps';
 
 const jsonSafe = <T>(value: T): T => JSON.parse(JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? item.toString() : item)) as T;
 
 export const dynamic = 'force-dynamic';
-
-async function hasColumn(tableName: string, columnName: string) {
-  const rows = await prisma.$queryRaw<Array<{ total: bigint | number }>>`
-    SELECT COUNT(*) AS total
-    FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = ${tableName}
-      AND COLUMN_NAME = ${columnName}
-  `;
-
-  return Number(rows[0]?.total || 0) > 0;
-}
 
 export async function GET(request: Request) {
   try {
@@ -26,17 +16,61 @@ export async function GET(request: Request) {
     const creatorName = searchParams.get('creator_name') || '';
     const warehouseId = searchParams.get('warehouse_id') || '';
 
-    const [ordersCsoHasAdvertiser, ordersCsoHasAdSource, ordersCrmHasAdvertiser, ordersCrmHasAdSource] = await Promise.all([
-      hasColumn('orders_cso', 'advertiser_name'),
-      hasColumn('orders_cso', 'ad_source'),
-      hasColumn('orders_crm', 'advertiser_name'),
-      hasColumn('orders_crm', 'ad_source'),
+    const [
+      ordersHasPendingAt,
+      ordersHasProcessingAt,
+      ordersHasLastUpdate,
+      ordersCsoHasAdvertiser,
+      ordersCsoHasAdSource,
+      ordersCsoHasPendingAt,
+      ordersCsoHasProcessingAt,
+      ordersCsoHasLastUpdate,
+      ordersCrmHasAdvertiser,
+      ordersCrmHasAdSource,
+      ordersCrmHasPendingAt,
+      ordersCrmHasProcessingAt,
+      ordersCrmHasLastUpdate,
+    ] = await Promise.all([
+      hasColumn(prisma, 'orders', 'pending_at'),
+      hasColumn(prisma, 'orders', 'processing_at'),
+      hasColumn(prisma, 'orders', 'last_update'),
+      hasColumn(prisma, 'orders_cso', 'advertiser_name'),
+      hasColumn(prisma, 'orders_cso', 'ad_source'),
+      hasColumn(prisma, 'orders_cso', 'pending_at'),
+      hasColumn(prisma, 'orders_cso', 'processing_at'),
+      hasColumn(prisma, 'orders_cso', 'last_update'),
+      hasColumn(prisma, 'orders_crm', 'advertiser_name'),
+      hasColumn(prisma, 'orders_crm', 'ad_source'),
+      hasColumn(prisma, 'orders_crm', 'pending_at'),
+      hasColumn(prisma, 'orders_crm', 'processing_at'),
+      hasColumn(prisma, 'orders_crm', 'last_update'),
     ]);
 
+    const pendingFallback = `CASE
+                WHEN o.order_status = 'pending'
+                THEN COALESCE(o.updated_at, o.created_at)
+                ELSE o.created_at
+            END`;
+
+    const processingFallback = `CASE
+                WHEN o.order_status IN ('processing', 'ready_to_ship', 'shipped', 'completed', 'rts', 'problem')
+                THEN COALESCE(o.updated_at, o.created_at)
+                ELSE NULL
+            END`;
+
+    const ordersPendingAtSelect = ordersHasPendingAt ? 'COALESCE(o.pending_at, o.created_at)' : pendingFallback;
+    const ordersProcessingAtSelect = ordersHasProcessingAt ? 'o.processing_at' : processingFallback;
+    const ordersLastUpdateSelect = ordersHasLastUpdate ? 'COALESCE(o.last_update, o.updated_at, o.created_at)' : 'COALESCE(o.updated_at, o.created_at)';
     const ordersCsoAdvertiserSelect = ordersCsoHasAdvertiser ? 'o.advertiser_name' : 'NULL';
+    const ordersCsoPendingAtSelect = ordersCsoHasPendingAt ? 'COALESCE(o.pending_at, o.created_at)' : pendingFallback;
     const ordersCsoAdSourceSelect = ordersCsoHasAdSource ? 'o.ad_source' : 'NULL';
+    const ordersCsoProcessingAtSelect = ordersCsoHasProcessingAt ? 'o.processing_at' : processingFallback;
+    const ordersCsoLastUpdateSelect = ordersCsoHasLastUpdate ? 'COALESCE(o.last_update, o.updated_at, o.created_at)' : 'COALESCE(o.updated_at, o.created_at)';
     const ordersCrmAdvertiserSelect = ordersCrmHasAdvertiser ? 'o.advertiser_name' : 'NULL';
+    const ordersCrmPendingAtSelect = ordersCrmHasPendingAt ? 'COALESCE(o.pending_at, o.created_at)' : pendingFallback;
     const ordersCrmAdSourceSelect = ordersCrmHasAdSource ? 'o.ad_source' : 'NULL';
+    const ordersCrmProcessingAtSelect = ordersCrmHasProcessingAt ? 'o.processing_at' : processingFallback;
+    const ordersCrmLastUpdateSelect = ordersCrmHasLastUpdate ? 'COALESCE(o.last_update, o.updated_at, o.created_at)' : 'COALESCE(o.updated_at, o.created_at)';
 
     const params: string[] = [];
     let conditionQuery = '';
@@ -68,7 +102,9 @@ export async function GET(request: Request) {
             o.id as order_id,
             o.order_code,
             o.order_status,
-            COALESCE(o.updated_at, o.created_at) as created_at,
+            ${ordersPendingAtSelect} as created_at,
+            ${ordersProcessingAtSelect} as processing_at,
+            ${ordersLastUpdateSelect} as last_update,
             o.advertiser_name,
             o.ad_source,
             o.notes,
@@ -110,7 +146,9 @@ export async function GET(request: Request) {
             o.id as order_id,
             o.order_code,
             o.order_status,
-            COALESCE(o.updated_at, o.created_at) as created_at,
+            ${ordersCsoPendingAtSelect} as created_at,
+            ${ordersCsoProcessingAtSelect} as processing_at,
+            ${ordersCsoLastUpdateSelect} as last_update,
             ${ordersCsoAdvertiserSelect} as advertiser_name,
             ${ordersCsoAdSourceSelect} as ad_source,
             o.notes,
@@ -149,7 +187,9 @@ export async function GET(request: Request) {
             o.id as order_id,
             o.order_code,
             o.order_status,
-            COALESCE(o.updated_at, o.created_at) as created_at,
+            ${ordersCrmPendingAtSelect} as created_at,
+            ${ordersCrmProcessingAtSelect} as processing_at,
+            ${ordersCrmLastUpdateSelect} as last_update,
             ${ordersCrmAdvertiserSelect} as advertiser_name,
             ${ordersCrmAdSourceSelect} as ad_source,
             o.notes,

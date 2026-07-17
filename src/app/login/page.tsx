@@ -8,21 +8,26 @@ import { useAuth } from '@/contexts/AuthContext';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, isAuthenticated } = useAuth();
-  const rememberedUsername = typeof window === 'undefined' ? '' : (localStorage.getItem('pos-remember-username') ?? '');
+  const { login, isAuthenticated, isReady } = useAuth();
 
-  const [username, setUsername] = useState(rememberedUsername);
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(Boolean(rememberedUsername));
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      router.replace('/');
+    const rememberedUsername = localStorage.getItem('pos-remember-username') ?? '';
+    setUsername(rememberedUsername);
+    setRememberMe(Boolean(rememberedUsername));
+  }, []);
+
+  useEffect(() => {
+    if (isReady && isAuthenticated) {
+      router.replace('/dashboard');
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, isReady, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,7 +49,7 @@ export default function LoginPage() {
         localStorage.removeItem('pos-remember-username');
       }
       localStorage.removeItem('pos-remember-email');
-      router.push('/');
+      setLoading(false);
       return;
     }
 
@@ -154,7 +159,7 @@ export default function LoginPage() {
               <button
                 id="btn-login"
                 type="submit"
-                disabled={loading}
+                disabled={loading || !isReady}
                 className="btn btn--primary login-submit"
               >
                 {loading ? (

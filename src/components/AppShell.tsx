@@ -11,7 +11,7 @@ import { disconnectSocket } from '@/lib/socket';
 const PUBLIC_ROUTES = ['/login'];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isReady } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -19,22 +19,26 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const isPublicRoute = PUBLIC_ROUTES.includes(pathname);
 
   useEffect(() => {
+    if (!isReady) {
+      return;
+    }
+
     if (!isAuthenticated && !isPublicRoute) {
       router.replace('/login');
     }
-  }, [isAuthenticated, isPublicRoute, router]);
+  }, [isAuthenticated, isPublicRoute, isReady, router]);
 
   useEffect(() => {
-    if (!isAuthenticated || isPublicRoute) {
+    if (!isReady || !isAuthenticated || isPublicRoute) {
       disconnectSocket();
     }
-  }, [isAuthenticated, isPublicRoute]);
+  }, [isAuthenticated, isPublicRoute, isReady]);
 
   if (isPublicRoute) {
     return <>{children}</>;
   }
 
-  if (!isAuthenticated) {
+  if (!isReady || !isAuthenticated) {
     return (
       <div className="loading-screen">
         <div className="loading-screen__row">
