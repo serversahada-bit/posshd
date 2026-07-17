@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSocketEvent } from '@/hooks/useSocketEvent';
@@ -65,6 +65,7 @@ function SubmenuItem({ href, label, active }: SubmenuItemProps) {
 
 export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen?: boolean, onClose?: () => void }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { user, logout } = useAuth();
   const [openSubmenu, setOpenSubmenu] = useState<string | null>(null);
 
@@ -106,6 +107,8 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
   };
 
   const isPesananActive = ['/buat_pesanan', '/buat_pesanan_cso', '/buat_pesanan_crm', '/buat_pesanan_resend', '/orders'].includes(pathname);
+  const olahanSort = searchParams.get('sort') ?? 'created_at';
+  const isDataPesananActive = pathname === '/olahan';
   const isGudangActive = ['/setting_gudang', '/stok_produk', '/stok_hadiah'].includes(pathname);
   const isPembayaranActive = ['/setting_payment', '/setting_no_payment'].includes(pathname);
 
@@ -167,7 +170,26 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
                 )}
 
                 {hasAccess('validasi_fat') && <NavItem href="/validasi_pembayaran" icon={CheckSquare} label="Validasi FAT" active={pathname === '/validasi_pembayaran'} />}
-                {hasAccess('olahan') && <NavItem href="/olahan" icon={PackageOpen} label="Data Pesanan" active={pathname === '/olahan'} />}
+                {hasAccess('olahan') && (
+                <div>
+                    <button
+                      className={`sidebar__toggle ${(isDataPesananActive || openSubmenu === 'data-pesanan') ? 'sidebar__toggle--active' : ''}`}
+                      onClick={() => toggleSubmenu('data-pesanan')}
+                    >
+                        <span className="sidebar__label-wrap">
+                            <PackageOpen className="sidebar__icon" size={18} strokeWidth={1.9} />
+                            <span className="sidebar__link-text">Data Pesanan</span>
+                        </span>
+                        <ChevronDown className={`sidebar__chevron ${(isDataPesananActive || openSubmenu === 'data-pesanan') ? 'sidebar__chevron--open' : ''}`} size={16} />
+                    </button>
+                    
+                    <div className={`sidebar__submenu ${(isDataPesananActive || openSubmenu === 'data-pesanan') ? '' : 'sidebar__submenu--closed'}`}>
+                        <SubmenuItem href="/olahan?sort=created_at" label="Create Order" active={pathname === '/olahan' && olahanSort === 'created_at'} />
+                        <SubmenuItem href="/olahan?sort=processing_at" label="Processing At" active={pathname === '/olahan' && olahanSort === 'processing_at'} />
+                        <SubmenuItem href="/olahan?sort=last_update" label="Last Update" active={pathname === '/olahan' && olahanSort === 'last_update'} />
+                    </div>
+                </div>
+                )}
                 </div>
             </div>
 
@@ -264,3 +286,4 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
     </>
   );
 }
+

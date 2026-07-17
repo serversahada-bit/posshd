@@ -15,6 +15,13 @@ export async function GET(request: Request) {
     const status = searchParams.get('status') || '';
     const creatorName = searchParams.get('creator_name') || '';
     const warehouseId = searchParams.get('warehouse_id') || '';
+    const sort = searchParams.get('sort') || 'created_at';
+    const sortColumnMap: Record<string, string> = {
+      created_at: 'created_at',
+      processing_at: 'processing_at',
+      last_update: 'last_update',
+    };
+    const orderByColumn = sortColumnMap[sort] ?? 'created_at';
 
     const [
       ordersHasPendingAt,
@@ -94,6 +101,9 @@ export async function GET(request: Request) {
     if (warehouseId) {
       conditionQuery += ` AND warehouse_id = ?`;
       params.push(warehouseId);
+    }
+    if (sort === 'processing_at') {
+      conditionQuery += ` AND processing_at IS NOT NULL`;
     }
 
     const rawQuery = `
@@ -223,7 +233,7 @@ export async function GET(request: Request) {
         WHERE (p.payment_method IS NULL OR p.payment_method != 'bank_transfer' OR p.payment_status = 'paid')
       ) as combined_orders
       WHERE 1=1 ${conditionQuery}
-      ORDER BY created_at DESC
+      ORDER BY ${orderByColumn} DESC, created_at DESC
     `;
 
     const orders = await prisma.$queryRawUnsafe(rawQuery, ...params);
@@ -234,3 +244,5 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: 'error', message: error instanceof Error ? error.message : 'Gagal mengambil data olahan' }, { status: 500 });
   }
 }
+
+

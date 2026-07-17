@@ -55,6 +55,49 @@ export async function GET(request: NextRequest) {
   }
 }
 
+const parseCsvLine = (line: string, delimiter: string) => {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const nextChar = line[index + 1];
+
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === delimiter && !inQuotes) {
+      result.push(current.trim());
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  result.push(current.trim());
+  return result;
+};
+
+const normalizeOriginCode = (value: string) => {
+  const cleanValue = value.trim();
+  const compactValue = cleanValue.replace(/s+/g, ' ');
+
+  if (/^madiun/i.test(compactValue) || compactValue === '39900') return 'Madiun (39900)';
+  if (/^bekasi/i.test(compactValue) || compactValue === '6573') return 'Bekasi (6573)';
+  if (/^jakarta/i.test(compactValue) || compactValue === '17665') return 'Jakarta (17665)';
+
+  return compactValue;
+};
+
 async function handleImport(formData: FormData) {
   const file = formData.get('file_csv');
   const truncateTable = formData.get('truncate_table') === '1';
@@ -87,11 +130,12 @@ async function handleImport(formData: FormData) {
   }> = [];
 
   rows.forEach((line) => {
-    const parts = line.split(delimiter).map((part) => part.trim());
+    const parts = parseCsvLine(line, delimiter);
     if (parts.length >= 7) {
+      const kodeAsal = normalizeOriginCode(parts[1] || '');
       importRows.push({
-        kode_asal: parts[1] || '',
-        kode_tujuan: parts[1] || '',
+        kode_asal: kodeAsal,
+        kode_tujuan: kodeAsal,
         nama_tujuan: parts[2] || '',
         kurir: (parts[3] || '').toUpperCase(),
         harga: parts[4] || '',

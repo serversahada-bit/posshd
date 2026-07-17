@@ -3,6 +3,8 @@ import prisma from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
+const normalizeCourierKey = (value: unknown) => String(value || '').trim().replace(/\s+/g, ' ').toUpperCase();
+
 function parsePriceInt(val: string | null): number {
   if (val === null || val === '-' || val === '') return 0;
   const num = parseInt(val.replace(/[^0-9]/g, ''), 10);
@@ -36,11 +38,50 @@ export async function GET(request: Request) {
     bekasi: 'Bekasi (6573)',
     jakarta: 'Jakarta (17665)',
   };
+  const originCodeAliases: Record<string, string[]> = {
+    madiun: ['Madiun (39900)', 'Madiun (39900', '39900'],
+    bekasi: ['Bekasi (6573)', 'Bekasi (6573', '6573'],
+    jakarta: ['Jakarta (17665)', 'Jakarta (17665', '17665'],
+  };
 
   const allOriginRates: Record<string, any> = {};
   const origins = ['madiun', 'bekasi', 'jakarta'];
 
   try {
+    const courierRows = await prisma.couriers.findMany({
+      select: { courier_name: true, code: true },
+      orderBy: { courier_name: 'asc' },
+    });
+
+    const fallbackCourierNames = ['NINJA', 'JNT', 'JNE', 'POS', 'LION'];
+    const courierAliasMap = new Map<string, string>();
+    const courierDisplayNames: string[] = [];
+
+    courierRows.forEach((courier) => {
+      const displayName = String(courier.courier_name || courier.code || '').trim();
+      if (!displayName) {
+        return;
+      }
+
+      if (!courierDisplayNames.includes(displayName)) {
+        courierDisplayNames.push(displayName);
+      }
+
+      const normalizedDisplayName = normalizeCourierKey(displayName);
+      const nameKey = normalizeCourierKey(courier.courier_name);
+      const codeKey = normalizeCourierKey(courier.code);
+      if (normalizedDisplayName) courierAliasMap.set(normalizedDisplayName, displayName);
+      if (nameKey) courierAliasMap.set(nameKey, displayName);
+      if (codeKey) courierAliasMap.set(codeKey, displayName);
+    });
+
+    fallbackCourierNames.forEach((name) => {
+      if (!courierDisplayNames.includes(name)) {
+        courierDisplayNames.push(name);
+      }
+      courierAliasMap.set(normalizeCourierKey(name), name);
+    });
+
     for (const origin of origins) {
       const kode_asal = originCodes[origin];
 
@@ -66,21 +107,18 @@ export async function GET(request: Request) {
       }
 
       if (rates.length > 0) {
-        const couriers: Record<string, any> = {
-          NINJA: { price: 0, estimation: '', out_of_coverage: 0 },
-          JNT: { price: 0, estimation: '', out_of_coverage: 0 },
-          JNE: { price: 0, estimation: '', out_of_coverage: 0 },
-          POS: { price: 0, estimation: '', out_of_coverage: 0 },
-          LION: { price: 0, estimation: '', out_of_coverage: 0 },
-        };
+        const couriers = Object.fromEntries(
+          courierDisplayNames.map((name) => [name, { price: 0, estimation: '', out_of_coverage: 0 }])
+        );
 
         for (const row of rates) {
           if (!row.kurir) continue;
-          const kurir = row.kurir.toUpperCase();
-          if (couriers[kurir]) {
-            couriers[kurir].price = parsePriceInt(row.harga);
-            couriers[kurir].estimation = row.estimasi || '';
-            couriers[kurir].out_of_coverage = parseInt(row.out_of_coverage || '0', 10) || 0;
+          const kurir = normalizeCourierKey(row.kurir);
+          const canonicalCourierKey = courierAliasMap.get(kurir);
+          if (canonicalCourierKey && couriers[canonicalCourierKey]) {
+            couriers[canonicalCourierKey].price = parsePriceInt(row.harga);
+            couriers[canonicalCourierKey].estimation = row.estimasi || '';
+            couriers[canonicalCourierKey].out_of_coverage = parseInt(row.out_of_coverage || '0', 10) || 0;
           }
         }
 

@@ -15,6 +15,7 @@ const ORIGINS: Record<OriginCode, string> = {
 const ORIGIN_KEYS: OriginCode[] = ['madiun', 'bekasi', 'jakarta'];
 
 const getErrorMessage = (error: unknown) => (error instanceof Error ? error.message : 'Terjadi kesalahan');
+const normalizeCourierCode = (value: string) => value.trim().replace(/\s+/g, ' ').toUpperCase();
 
 async function buildPayload() {
   const courierRows = await prisma.couriers.findMany({
@@ -61,23 +62,28 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const settingsInput = body?.settings && typeof body.settings === 'object' ? body.settings : {};
 
-    const rows: Array<{
+    const rowMap = new Map<string, {
       courier_code: string;
       origin_code: OriginCode;
       disc_percent: number;
       gudang_fee: number;
       cod_fee_percent: number;
-    }> = [];
+    }>();
 
     Object.entries(settingsInput).forEach(([courierCode, originMap]) => {
       if (!originMap || typeof originMap !== 'object') {
         return;
       }
 
+      const normalizedCourierCode = normalizeCourierCode(courierCode);
+      if (!normalizedCourierCode) {
+        return;
+      }
+
       ORIGIN_KEYS.forEach((origin) => {
         const row = (originMap as Record<string, { disc?: string; gudang?: string; cod_fee?: string }>)[origin] || {};
-        rows.push({
-          courier_code: courierCode,
+        rowMap.set(`${normalizedCourierCode}::${origin}`, {
+          courier_code: normalizedCourierCode,
           origin_code: origin,
           disc_percent: Number(row.disc || 0),
           gudang_fee: Number(row.gudang || 0),
@@ -86,12 +92,15 @@ export async function POST(request: NextRequest) {
       });
     });
 
+    const rows = Array.from(rowMap.values());
+
     await prisma.$transaction(async (tx) => {
       await tx.ongkir_settings.deleteMany();
 
       if (rows.length > 0) {
         await tx.ongkir_settings.createMany({
           data: rows,
+          skipDuplicates: true,
         });
       }
     });

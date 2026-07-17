@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Loader2, Download, Upload, Trash2, FileSpreadsheet, Search, Edit, Truck } from 'lucide-react';
 import Swal from 'sweetalert2';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 
 import { useAuth } from '@/contexts/AuthContext';
 import { useSocketEvent } from '@/hooks/useSocketEvent';
@@ -66,6 +67,8 @@ const getErrorMessage = (error: unknown) => (error instanceof Error ? error.mess
 
 export default function OlahanPage() {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
+  const sortBy = searchParams.get('sort') ?? 'created_at';
 
   const [data, setData] = useState<OrderItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,6 +93,7 @@ export default function OlahanPage() {
     setLoading(true);
     try {
       const query = new URLSearchParams();
+      query.append('sort', sortBy);
       if (startDate) query.append('start_date', startDate);
       if (endDate) query.append('end_date', endDate);
       if (statusFilter) query.append('status', statusFilter);
@@ -110,14 +114,14 @@ export default function OlahanPage() {
     } finally {
       setLoading(false);
     }
-  }, [creatorFilter, endDate, startDate, statusFilter, warehouseFilter]);
+  }, [creatorFilter, endDate, sortBy, startDate, statusFilter, warehouseFilter]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void fetchData();
     }, 0);
 
-    return () => window.clearTimeout(timer);
+  return () => window.clearTimeout(timer);
   }, [fetchData]);
 
   useSocketEvent('NEW_OLAHAN', () => {
@@ -166,7 +170,7 @@ export default function OlahanPage() {
     void loadUsers();
     void loadWarehouses();
 
-    return () => {
+  return () => {
       isMounted = false;
     };
   }, []);
@@ -419,12 +423,25 @@ export default function OlahanPage() {
     }
   };
 
+
+  const sortDescriptions: Record<string, string> = {
+    created_at: 'Daftar semua data pesanan, diurutkan berdasarkan Create Order. Gunakan filter untuk mencari data tertentu.',
+    processing_at: 'Menampilkan hanya pesanan yang sudah memiliki Processing At. Gunakan filter untuk mencari data tertentu.',
+    last_update: 'Daftar semua data pesanan, diurutkan berdasarkan Last Update. Gunakan filter untuk mencari data tertentu.',
+  };
+
+  const currentSortDescription = sortDescriptions[sortBy] ?? sortDescriptions.created_at;
+  const showCreatedAtColumn = sortBy === 'created_at';
+  const showProcessingAtColumn = sortBy === 'processing_at';
+  const showLastUpdateColumn = sortBy === 'last_update';
+  const visibleColumnCount = 8 + (showCreatedAtColumn ? 1 : 0) + (showProcessingAtColumn ? 1 : 0) + (showLastUpdateColumn ? 1 : 0);
+
   return (
     <div className="h-full flex flex-col p-6 max-w-[1600px] mx-auto">
       <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Data Pesanan</h1>
-          <p className="text-sm text-slate-400 mt-1">Daftar semua data pesanan. Gunakan filter untuk mencari data tertentu.</p>
+          <p className="text-sm text-slate-400 mt-1">{currentSortDescription}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <button type="button" onClick={() => void downloadTemplate()} disabled={isDownloadingTemplate} className="group relative inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white rounded-xl text-sm font-bold transition-all duration-300 shadow-[0_4px_12px_rgba(99,102,241,0.3)] hover:shadow-[0_6px_20px_rgba(99,102,241,0.4)] hover:-translate-y-0.5 disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:transform-none overflow-hidden">
@@ -516,9 +533,9 @@ export default function OlahanPage() {
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="p-4 text-center w-12"><input type="checkbox" className="w-4 h-4 rounded border-slate-300 text-blue-600" onChange={handleSelectAll} checked={data.length > 0 && selectedIds.length === data.length} /></th>
-                <th className="p-4 font-semibold text-slate-600">Order Masuk</th>
-                <th className="p-4 font-semibold text-slate-600">Processing At</th>
-                <th className="p-4 font-semibold text-slate-600">Last Update</th>
+                {showCreatedAtColumn ? <th className="p-4 font-semibold text-slate-600">Order Masuk</th> : null}
+                {showProcessingAtColumn ? <th className="p-4 font-semibold text-slate-600">Processing At</th> : null}
+                {showLastUpdateColumn ? <th className="p-4 font-semibold text-slate-600">Last Update</th> : null}
                 <th className="p-4 font-semibold text-slate-600">ID Pesanan</th>
                 <th className="p-4 font-semibold text-slate-600">Data Pelanggan</th>
                 <th className="p-4 font-semibold text-slate-600">Nama Desa</th>
@@ -531,14 +548,14 @@ export default function OlahanPage() {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="text-center py-12">
+                  <td colSpan={visibleColumnCount} className="text-center py-12">
                     <Loader2 className="w-8 h-8 text-blue-500 animate-spin mx-auto mb-2" />
                     <p className="text-slate-500 font-medium">Memuat data...</p>
                   </td>
                 </tr>
               ) : data.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="text-center py-12">
+                  <td colSpan={visibleColumnCount} className="text-center py-12">
                     <Search className="w-10 h-10 text-slate-300 mx-auto mb-2" />
                     <p className="text-slate-500">Belum ada data pesanan yang cocok.</p>
                   </td>
@@ -549,9 +566,9 @@ export default function OlahanPage() {
                     <td className="p-4 text-center align-top">
                       <input type="checkbox" className="w-4 h-4 rounded border-slate-300 text-blue-600" checked={selectedIds.some((item) => item.id === row.order_id && item.source === row.source_table)} onChange={(event) => handleSelectOne(row.order_id, row.source_table, event.target.checked)} />
                     </td>
-                    <td className="p-4 text-slate-500 text-xs align-top whitespace-nowrap">{formatDate(row.created_at)}</td>
-                    <td className="p-4 text-slate-500 text-xs align-top whitespace-nowrap">{row.processing_at ? formatDate(row.processing_at) : '-'}</td>
-                    <td className="p-4 text-slate-500 text-xs align-top whitespace-nowrap">{formatDate(row.last_update)}</td>
+                    {showCreatedAtColumn ? <td className="p-4 text-slate-500 text-xs align-top whitespace-nowrap">{formatDate(row.created_at)}</td> : null}
+                    {showProcessingAtColumn ? <td className="p-4 text-slate-500 text-xs align-top whitespace-nowrap">{row.processing_at ? formatDate(row.processing_at) : '-'}</td> : null}
+                    {showLastUpdateColumn ? <td className="p-4 text-slate-500 text-xs align-top whitespace-nowrap">{formatDate(row.last_update)}</td> : null}
                     <td className="p-4 align-top">
                       <span className="font-bold text-slate-700">{row.order_code}</span>
                       <div className="flex flex-wrap items-center gap-1.5 mt-1">
@@ -642,3 +659,4 @@ export default function OlahanPage() {
     </div>
   );
 }
+

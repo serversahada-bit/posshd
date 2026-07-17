@@ -304,7 +304,7 @@ export async function POST(request: Request) {
 
     const headers = [
       'Tanggal Proses', 'No Resi', 'Timestamp', 'Unique Code', 'Data Lengkap Pesanan Pembeli', 
-      'FIRST NAME', 'CONTACT*', 'Desa', 'kota/kabupaten', 'kecamatan', 'Provinsi', 'BERAT', 
+      'FIRST NAME', 'CONTACT*', 'Alamat', 'kota/kabupaten', 'kecamatan', 'Provinsi', 'BERAT', 
       'JUMLAH BARANG', 'Harga Barang', 'HADIAH / BONUS', 'ISI PAKET', 'COD VALUE', 'Keterangan', 
       'Ekspedisi', 'Tipe Pembayaran', 'Bukti Transfer Paket Non COD', 'Usia Customer', 
       'Keluhan / Penyakit Customer', 'Keterangan Ninja', 
