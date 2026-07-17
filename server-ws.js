@@ -9,6 +9,7 @@ const DEFAULT_ALLOWED_ORIGINS = [
   'https://pos.ptslu.cloud',
   'http://localhost:3000',
   'http://127.0.0.1:3000',
+  'http://192.168.1.107:3000',
 ];
 
 const parseAllowedOrigins = () => {

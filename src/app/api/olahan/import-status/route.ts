@@ -5,6 +5,8 @@ import { Buffer } from 'node:buffer';
 
 import prisma from '@/lib/db';
 import { emitEvent } from '@/lib/socket-server';
+import { syncOrderTimestampColumns } from '@/lib/orderTimestamps';
+import { logOrderStatusChange } from '@/lib/orderStatusLog';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,33 +31,20 @@ function normalizeStatus(value: string) {
   return statusAliasMap[normalized] || statusAliasMap[normalized.replace(/ /g, '_')] || '';
 }
 
-function buildStatusUpdateData<TStatus extends string>(status: TStatus) {
-  if (status === 'pending') {
-    return {
-      order_status: status,
-      updated_at: new Date(),
-    };
-  }
-
-  return {
-    order_status: status,
-  };
-}
-
 async function findOrderByCode(tx: Prisma.TransactionClient, orderCode: string) {
-  const regular = await tx.orders.findFirst({ where: { order_code: orderCode }, select: { id: true } });
+  const regular = await tx.orders.findFirst({ where: { order_code: orderCode }, select: { id: true, order_code: true, order_status: true } });
   if (regular) {
-    return { orderId: regular.id, sourceTable: 'orders' as const };
+    return { orderId: regular.id, order_code: regular.order_code, order_status: regular.order_status, sourceTable: 'orders' as const };
   }
 
-  const cso = await tx.orders_cso.findFirst({ where: { order_code: orderCode }, select: { id: true } });
+  const cso = await tx.orders_cso.findFirst({ where: { order_code: orderCode }, select: { id: true, order_code: true, order_status: true } });
   if (cso) {
-    return { orderId: cso.id, sourceTable: 'orders_cso' as const };
+    return { orderId: cso.id, order_code: cso.order_code, order_status: cso.order_status, sourceTable: 'orders_cso' as const };
   }
 
-  const crm = await tx.orders_crm.findFirst({ where: { order_code: orderCode }, select: { id: true } });
+  const crm = await tx.orders_crm.findFirst({ where: { order_code: orderCode }, select: { id: true, order_code: true, order_status: true } });
   if (crm) {
-    return { orderId: crm.id, sourceTable: 'orders_crm' as const };
+    return { orderId: crm.id, order_code: crm.order_code, order_status: crm.order_status, sourceTable: 'orders_crm' as const };
   }
 
   return null;
@@ -114,10 +103,15 @@ export async function POST(request: Request) {
 
         if (order.sourceTable === 'orders') {
           if (statusBaru) {
+            const eventAt = new Date();
             await tx.orders.update({
               where: { id: order.orderId },
-              data: buildStatusUpdateData(statusBaru as orders_order_status),
+              data: { order_status: statusBaru as orders_order_status, updated_at: eventAt },
             });
+            await syncOrderTimestampColumns(tx, 'orders', order.orderId, statusBaru, eventAt);
+            if (order.order_status !== statusBaru) {
+              await logOrderStatusChange(tx, { userId, orderCode: order.order_code, source: 'CSO', fromStatus: order.order_status, toStatus: statusBaru, reason: 'Import status' });
+            }
           }
 
           if (noResi) {
@@ -142,10 +136,15 @@ export async function POST(request: Request) {
           }
         } else if (order.sourceTable === 'orders_cso') {
           if (statusBaru) {
+            const eventAt = new Date();
             await tx.orders_cso.update({
               where: { id: order.orderId },
-              data: buildStatusUpdateData(statusBaru as orders_cso_order_status),
+              data: { order_status: statusBaru as orders_cso_order_status, updated_at: eventAt },
             });
+            await syncOrderTimestampColumns(tx, 'orders_cso', order.orderId, statusBaru, eventAt);
+            if (order.order_status !== statusBaru) {
+              await logOrderStatusChange(tx, { userId, orderCode: order.order_code, source: 'CSO_AUTO', fromStatus: order.order_status, toStatus: statusBaru, reason: 'Import status' });
+            }
           }
 
           if (noResi) {
@@ -170,10 +169,15 @@ export async function POST(request: Request) {
           }
         } else {
           if (statusBaru) {
+            const eventAt = new Date();
             await tx.orders_crm.update({
               where: { id: order.orderId },
-              data: buildStatusUpdateData(statusBaru as orders_crm_order_status),
+              data: { order_status: statusBaru as orders_crm_order_status, updated_at: eventAt },
             });
+            await syncOrderTimestampColumns(tx, 'orders_crm', order.orderId, statusBaru, eventAt);
+            if (order.order_status !== statusBaru) {
+              await logOrderStatusChange(tx, { userId, orderCode: order.order_code, source: 'CRM', fromStatus: order.order_status, toStatus: statusBaru, reason: 'Import status' });
+            }
           }
 
           if (noResi) {

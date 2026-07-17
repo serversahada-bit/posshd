@@ -1,26 +1,20 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { emitEvent } from '@/lib/socket-server';
+import { syncOrderTimestampColumns } from '@/lib/orderTimestamps';
+import { logOrderStatusChange } from '@/lib/orderStatusLog';
 
 export const dynamic = 'force-dynamic';
 
-function buildStatusUpdateQuery(tableName: string, ids: number[], shouldRefreshTimestamp: boolean) {
+function buildStatusUpdateQuery(tableName: string, ids: number[]) {
   const placeholders = ids.map(() => '?').join(', ');
-
-  if (shouldRefreshTimestamp) {
-    return `UPDATE ${tableName} SET order_status = ?, updated_at = ? WHERE id IN (${placeholders})`;
-  }
-
-  return `UPDATE ${tableName} SET order_status = ?, updated_at = updated_at WHERE id IN (${placeholders})`;
+  return `UPDATE ${tableName} SET order_status = ?, updated_at = ? WHERE id IN (${placeholders})`;
 }
 
-function buildStatusUpdateParams(status: string, ids: number[], shouldRefreshTimestamp: boolean) {
-  if (shouldRefreshTimestamp) {
-    return [status, new Date(), ...ids];
-  }
-
-  return [status, ...ids];
+function buildStatusUpdateParams(status: string, ids: number[], eventAt: Date) {
+  return [status, eventAt, ...ids];
 }
+
 
 export async function POST(request: Request) {
   try {
@@ -39,30 +33,55 @@ export async function POST(request: Request) {
         return NextResponse.json({ status: 'error', message: 'Status tidak valid.' }, { status: 400 });
       }
 
-      const shouldRefreshTimestamp = bulk_status === 'pending';
+      const eventAt = new Date();
 
       await prisma.$transaction(async (tx) => {
+        const csoRows = csoIdArray.length > 0 ? await tx.$queryRawUnsafe<any[]>(`SELECT id, order_code, order_status FROM orders WHERE id IN (${csoIdArray.map(() => '?').join(', ')})`, ...csoIdArray) : [];
+        const csoAutoRows = csoAutoIdArray.length > 0 ? await tx.$queryRawUnsafe<any[]>(`SELECT id, order_code, order_status FROM orders_cso WHERE id IN (${csoAutoIdArray.map(() => '?').join(', ')})`, ...csoAutoIdArray) : [];
+        const crmRows = crmIdArray.length > 0 ? await tx.$queryRawUnsafe<any[]>(`SELECT id, order_code, order_status FROM orders_crm WHERE id IN (${crmIdArray.map(() => '?').join(', ')})`, ...crmIdArray) : [];
+
         if (csoIdArray.length > 0) {
           await tx.$executeRawUnsafe(
-            buildStatusUpdateQuery('orders', csoIdArray, shouldRefreshTimestamp),
-            ...buildStatusUpdateParams(bulk_status, csoIdArray, shouldRefreshTimestamp),
+            buildStatusUpdateQuery('orders', csoIdArray),
+            ...buildStatusUpdateParams(bulk_status, csoIdArray, eventAt),
           );
+          for (const id of csoIdArray) {
+            await syncOrderTimestampColumns(tx, 'orders', id, bulk_status, eventAt);
+            const row = csoRows.find((item) => Number(item.id) === id);
+            if (row && row.order_status !== bulk_status) {
+              await logOrderStatusChange(tx, { userId, orderCode: row.order_code, source: 'CSO', fromStatus: row.order_status, toStatus: bulk_status, reason: 'Bulk update status' });
+            }
+          }
           count += csoIdArray.length;
         }
 
         if (csoAutoIdArray.length > 0) {
           await tx.$executeRawUnsafe(
-            buildStatusUpdateQuery('orders_cso', csoAutoIdArray, shouldRefreshTimestamp),
-            ...buildStatusUpdateParams(bulk_status, csoAutoIdArray, shouldRefreshTimestamp),
+            buildStatusUpdateQuery('orders_cso', csoAutoIdArray),
+            ...buildStatusUpdateParams(bulk_status, csoAutoIdArray, eventAt),
           );
+          for (const id of csoAutoIdArray) {
+            await syncOrderTimestampColumns(tx, 'orders_cso', id, bulk_status, eventAt);
+            const row = csoAutoRows.find((item) => Number(item.id) === id);
+            if (row && row.order_status !== bulk_status) {
+              await logOrderStatusChange(tx, { userId, orderCode: row.order_code, source: 'CSO_AUTO', fromStatus: row.order_status, toStatus: bulk_status, reason: 'Bulk update status' });
+            }
+          }
           count += csoAutoIdArray.length;
         }
 
         if (crmIdArray.length > 0) {
           await tx.$executeRawUnsafe(
-            buildStatusUpdateQuery('orders_crm', crmIdArray, shouldRefreshTimestamp),
-            ...buildStatusUpdateParams(bulk_status, crmIdArray, shouldRefreshTimestamp),
+            buildStatusUpdateQuery('orders_crm', crmIdArray),
+            ...buildStatusUpdateParams(bulk_status, crmIdArray, eventAt),
           );
+          for (const id of crmIdArray) {
+            await syncOrderTimestampColumns(tx, 'orders_crm', id, bulk_status, eventAt);
+            const row = crmRows.find((item) => Number(item.id) === id);
+            if (row && row.order_status !== bulk_status) {
+              await logOrderStatusChange(tx, { userId, orderCode: row.order_code, source: 'CRM', fromStatus: row.order_status, toStatus: bulk_status, reason: 'Bulk update status' });
+            }
+          }
           count += crmIdArray.length;
         }
 

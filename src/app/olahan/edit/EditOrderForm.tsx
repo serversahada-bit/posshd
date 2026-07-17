@@ -16,15 +16,34 @@ type Item = {
   image_url?: string;
 };
 
+type EditLog = {
+  id: number;
+  action?: string;
+  details?: string | null;
+  created_at: string;
+  user_name: string | null;
+};
+
 type Data = Record<string, any> & {
   order: Record<string, any>;
   items: any[];
   payment: any;
   shipment: any;
+  editLogs?: EditLog[];
 };
 
 const money = (value: number) => new Intl.NumberFormat('id-ID').format(value || 0);
 const number = (value: any) => Number(value || 0);
+const formatDateTime = (value: string | null | undefined) => {
+  if (!value) return '-';
+  return new Date(value).toLocaleString('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
 
 const inputClass = 'w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition-colors focus:border-purple-300 focus:ring-1 focus:ring-purple-300';
 const textareaClass = `${inputClass} min-h-[96px] resize-y`;
@@ -358,7 +377,7 @@ export default function EditOrderForm() {
             className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-200"
           >
             <ArrowLeft className="h-4 w-4" />
-            Kembali ke Olahan
+            Kembali ke Data Pesanan
           </button>
         </div>
       </div>
@@ -373,11 +392,17 @@ export default function EditOrderForm() {
   const warehouseSummary = selectedWarehouse
     ? `${selectedWarehouse.warehouse_name}${selectedWarehouse.city ? ` - ${selectedWarehouse.city}` : ''}`
     : 'Gudang belum dipilih';
+  const latestEditLog = data.editLogs?.[0] || null;
+  const getLogLabel = (log: EditLog) => {
+    if (log.action === 'Update Status Pesanan') return 'Status';
+    if (log.action === 'Create Pesanan') return 'Create';
+    return 'Edit';
+  };
 
   return (
     <div className="w-full px-4 py-6 md:px-8 lg:px-12">
       <form onSubmit={submit} className="space-y-6">
-        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="mb-6">
           <div>
             <button
               type="button"
@@ -385,28 +410,16 @@ export default function EditOrderForm() {
               className="mb-3 inline-flex items-center gap-2 text-sm font-medium text-slate-500 transition-colors hover:text-purple-600"
             >
               <ArrowLeft className="h-4 w-4" />
-              Kembali ke Olahan
+              Kembali ke Data Pesanan
             </button>
             <h1 className="text-2xl font-bold text-slate-800">Edit Pesanan</h1>
             <p className="mt-1 text-sm text-slate-500">Perbarui detail pesanan dengan tampilan yang konsisten seperti halaman input pesanan lain.</p>
           </div>
 
-          <div className="rounded-2xl border border-purple-100 bg-white px-5 py-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-purple-500">Ringkasan Pesanan</p>
-            <p className="mt-2 text-lg font-bold text-slate-800">{data.order.order_code}</p>
-            <p className="mt-1 text-sm text-slate-500">Sumber: {source.replace('_', ' ')}</p>
-            <button
-              type="submit"
-              disabled={saving}
-              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-purple-200 px-4 py-3 text-sm font-bold text-purple-900 shadow-[0_4px_14px_0_rgba(216,180,226,0.5)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-purple-300 disabled:transform-none disabled:opacity-50"
-            >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              Simpan Perubahan
-            </button>
-          </div>
         </div>
 
-        <div className="space-y-6">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
+          <div className="space-y-6">
             <section className={sectionClass}>
               <div className={sectionHeadClass}>
                 <div className="flex items-center gap-3">
@@ -753,6 +766,50 @@ export default function EditOrderForm() {
                 </div>
               </div>
             </section>
+          </div>
+
+          <aside className="space-y-4 xl:sticky xl:top-6">
+            <div className="rounded-2xl border border-purple-100 bg-white px-5 py-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-purple-500">Ringkasan Pesanan</p>
+              <p className="mt-2 text-lg font-bold text-slate-800">{data.order.order_code}</p>
+              <p className="mt-1 text-sm text-slate-500">Sumber: {source.replace('_', ' ')}</p>
+              <button
+                type="submit"
+                disabled={saving}
+                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-purple-200 px-4 py-3 text-sm font-bold text-purple-900 shadow-[0_4px_14px_0_rgba(216,180,226,0.5)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-purple-300 disabled:transform-none disabled:opacity-50"
+              >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Simpan Perubahan
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Log Aktivitas User</p>
+              {latestEditLog ? (
+                <>
+                  <p className="mt-2 text-sm font-semibold text-slate-800">Aktivitas terakhir oleh {latestEditLog.user_name || 'User tidak dikenal'}</p>
+                  <p className="mt-1 text-sm text-slate-500">{getLogLabel(latestEditLog)} | {formatDateTime(latestEditLog.created_at)}</p>
+                </>
+              ) : (
+                <p className="mt-2 text-sm text-slate-500">Belum ada riwayat aktivitas untuk pesanan ini.</p>
+              )}
+
+              {data.editLogs && data.editLogs.length > 0 ? (
+                <div className="mt-4 space-y-2 border-t border-slate-100 pt-4">
+                  {data.editLogs.slice(0, 5).map((log) => (
+                    <div key={log.id} className="rounded-xl bg-slate-50 px-3 py-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-medium text-slate-700">{log.user_name || 'User tidak dikenal'}</p>
+                        <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{getLogLabel(log)}</span>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">{formatDateTime(log.created_at)}</p>
+                      {log.details ? <p className="mt-1 text-xs text-slate-600">{log.details}</p> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </aside>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">

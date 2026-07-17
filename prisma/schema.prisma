@@ -285,7 +285,10 @@ model orders {
   total_payment            BigInt?              @default(0) @db.UnsignedBigInt
   notes                    String?              @db.Text
   created_at               DateTime             @default(now()) @db.Timestamp(0)
+  pending_at               DateTime?            @db.Timestamp(0)
+  processing_at            DateTime?            @db.Timestamp(0)
   updated_at               DateTime             @default(now()) @db.Timestamp(0)
+  last_update              DateTime?            @db.Timestamp(0)
   warehouse_id             Int?
   courier_id               Int?
   advertiser_name          String?              @db.VarChar(150)
@@ -324,7 +327,10 @@ model orders_crm {
   total_payment            BigInt?                  @default(0) @db.UnsignedBigInt
   notes                    String?                  @db.Text
   created_at               DateTime                 @default(now()) @db.Timestamp(0)
+  pending_at               DateTime?                @db.Timestamp(0)
+  processing_at            DateTime?                @db.Timestamp(0)
   updated_at               DateTime                 @default(now()) @db.Timestamp(0)
+  last_update              DateTime?                @db.Timestamp(0)
   warehouse_id             Int?
   courier_id               Int?
   is_ro                    Boolean?                 @default(false)
@@ -356,7 +362,10 @@ model orders_cso {
   total_payment            BigInt?                  @default(0) @db.UnsignedBigInt
   notes                    String?                  @db.Text
   created_at               DateTime                 @default(now()) @db.Timestamp(0)
+  pending_at                DateTime?                @db.Timestamp(0)
+  processing_at            DateTime?                @db.Timestamp(0)
   updated_at               DateTime                 @default(now()) @db.Timestamp(0)
+  last_update              DateTime?                @db.Timestamp(0)
   warehouse_id             Int?
   courier_id               Int?
   advertiser_name          String?                  @db.VarChar(150)
@@ -393,7 +402,9 @@ model orders_resend {
   total_payment            BigInt?                     @default(0) @db.UnsignedBigInt
   notes                    String?                     @db.Text
   created_at               DateTime                    @default(now()) @db.Timestamp(0)
+  processing_at            DateTime?                   @db.Timestamp(0)
   updated_at               DateTime                    @default(now()) @db.Timestamp(0)
+  last_update              DateTime?                   @db.Timestamp(0)
   warehouse_id             Int?
   courier_id               Int?
   is_ro                    Boolean?                    @default(false)

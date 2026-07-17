@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import prisma from '@/lib/db';
 import { mkdir, writeFile } from 'fs/promises';
 import { join } from 'path';
 import crypto from 'crypto';
+import { syncOrderTimestampColumns } from '@/lib/orderTimestamps';
+import { logOrderStatusChange } from '@/lib/orderStatusLog';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,8 +58,11 @@ export async function GET(request: Request) {
     const orderId = Number(resolved.id);
 
     const hasNoShippingCost = await hasColumn('no_payment_methods', 'no_shipping_cost');
+    const editLogMarker = `(Order: ${resolved.order_code}, Source: ${source})`;
+    const statusLogOrderMarker = `Order: ${resolved.order_code}`;
+    const statusLogSourceMarker = `Source: ${source}`;
 
-    const [orders, items, payments, shipments, products, gifts, bundles, warehouses, couriers, promos, advertisers, adSources, paymentAccounts, noPaymentMethods, productStocks, giftStocks] = await Promise.all([
+    const [orders, items, payments, shipments, products, gifts, bundles, warehouses, couriers, promos, advertisers, adSources, paymentAccounts, noPaymentMethods, productStocks, giftStocks, editLogs] = await Promise.all([
       prisma.$queryRawUnsafe<any[]>(`SELECT o.*, c.name customer_name, c.whatsapp_number, c.email, c.address, c.province, c.city, c.subdistrict, c.desa, c.age, c.complaint FROM ${t.orders} o LEFT JOIN customers c ON c.id=o.customer_id WHERE o.id=? LIMIT 1`, orderId),
       prisma.$queryRawUnsafe<any[]>(`SELECT oi.*, COALESCE(pb.image_url,p.image_url,g.image_url) image_url FROM ${t.items} oi LEFT JOIN products p ON p.id=oi.product_id AND COALESCE(oi.is_gift,0)=0 AND COALESCE(oi.is_bundle,0)=0 LEFT JOIN gifts g ON g.id=oi.product_id AND oi.is_gift=1 LEFT JOIN product_bundles pb ON pb.id=oi.product_id AND oi.is_bundle=1 WHERE oi.order_id=?`, orderId),
       prisma.$queryRawUnsafe<any[]>(`SELECT * FROM ${t.payments} WHERE order_id=? LIMIT 1`, orderId),
@@ -77,7 +83,47 @@ export async function GET(request: Request) {
       ),
       prisma.warehouse_stock.findMany(),
       prisma.warehouse_gift_stock.findMany(),
+      prisma.activity_logs.findMany({
+        where: {
+          action: {
+            in: ['Edit Pesanan', 'Update Status Pesanan', 'Create Pesanan'],
+          },
+          OR: [
+            {
+              details: {
+                contains: editLogMarker,
+              },
+            },
+            {
+              AND: [
+                {
+                  details: {
+                    contains: statusLogOrderMarker,
+                  },
+                },
+                {
+                  details: {
+                    contains: statusLogSourceMarker,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+        include: {
+          users: {
+            select: {
+              name: true,
+            },
+          },
+        },
+        orderBy: {
+          created_at: 'desc',
+        },
+        take: 10,
+      }),
     ]);
+
     const order = orders[0];
     if (!order) return NextResponse.json({ status: 'error', message: 'Pesanan tidak ditemukan' }, { status: 404 });
     if (!order.warehouse_id && shipments[0]?.warehouse_id) order.warehouse_id = shipments[0].warehouse_id;
@@ -89,7 +135,35 @@ export async function GET(request: Request) {
       no_shipping_cost: Boolean(item.no_shipping_cost),
     }));
 
-    return NextResponse.json(safeJson({ status: 'success', data: { source, order, items, payment: payments[0] || null, shipment: shipments[0] || null, products, gifts, bundles, warehouses, couriers, promos, advertisers, adSources, paymentAccounts, noPaymentMethods: normalizedNoPaymentMethods, productStocks, giftStocks } }));
+    return NextResponse.json(safeJson({
+      status: 'success',
+      data: {
+        source,
+        order,
+        items,
+        payment: payments[0] || null,
+        shipment: shipments[0] || null,
+        products,
+        gifts,
+        bundles,
+        warehouses,
+        couriers,
+        promos,
+        advertisers,
+        adSources,
+        paymentAccounts,
+        noPaymentMethods: normalizedNoPaymentMethods,
+        productStocks,
+        giftStocks,
+        editLogs: editLogs.map((row) => ({
+          id: row.id,
+          action: row.action,
+          details: row.details,
+          created_at: row.created_at,
+          user_name: row.users?.name || null,
+        })),
+      },
+    }));
   } catch (error: any) {
     console.error('GET olahan edit:', error);
     return NextResponse.json({ status: 'error', message: error.message || 'Gagal memuat pesanan' }, { status: 500 });
@@ -115,17 +189,22 @@ export async function PUT(request: Request) {
     const source = sourceOf(payload.source);
     const identifier = String(payload.id || '').trim();
     if (!source || !identifier) return NextResponse.json({ status: 'error', message: 'ID atau sumber pesanan tidak valid' }, { status: 400 });
+
     const resolved = await resolveOrder(identifier, source);
     if (!resolved) return NextResponse.json({ status: 'error', message: 'Pesanan tidak ditemukan' }, { status: 404 });
+
     const proofUrl = await saveProof(form.get('payment_proof') as File | null);
     const updatedAt = new Date();
+    const cookieStore = await cookies();
+    const userId = Number(cookieStore.get('sahada_user_id')?.value || 0);
+    const ipAddress = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || null;
     const t = tableMap[source];
     const orderId = Number(resolved.id);
     const items = (payload.items || []) as ItemInput[];
     if (!items.length) return NextResponse.json({ status: 'error', message: 'Pesanan harus memiliki minimal satu produk atau hadiah' }, { status: 400 });
 
     await prisma.$transaction(async (tx) => {
-      const oldOrders = await tx.$queryRawUnsafe<any[]>(`SELECT warehouse_id,customer_id FROM ${t.orders} WHERE id=? FOR UPDATE`, orderId);
+      const oldOrders = await tx.$queryRawUnsafe<any[]>(`SELECT warehouse_id, customer_id, order_status, order_code FROM ${t.orders} WHERE id=? FOR UPDATE`, orderId);
       const old = oldOrders[0];
       if (!old) throw new Error('Pesanan tidak ditemukan');
       const oldItems = await tx.$queryRawUnsafe<any[]>(`SELECT product_id,qty,is_gift,is_bundle FROM ${t.items} WHERE order_id=?`, orderId);
@@ -152,11 +231,15 @@ export async function PUT(request: Request) {
       const warehouseId = payload.warehouse_id ? Number(payload.warehouse_id) : null;
       const roCount = Number(payload.ro_count || 0);
       const nextOrderStatus = 'pending';
+
       if (source === 'CSO') {
         await tx.$executeRawUnsafe(`UPDATE ${t.orders} SET order_status=?,total_product_price=?,product_discount=?,shipping_cost=?,additional_shipping_cost=?,shipping_discount=?,other_fee=?,total_payment=?,notes=?,warehouse_id=?,courier_id=?,promo_id=?,advertiser_name=?,ad_source=?,updated_at=? WHERE id=?`, nextOrderStatus, Number(payload.total_product_price), Number(payload.product_discount), Number(payload.shipping_cost), Number(payload.manual_fee_cod), Number(payload.shipping_discount || 0), Number(payload.other_fee), Number(payload.total_payment), payload.notes || null, warehouseId, courierId, payload.promo_id || null, payload.advertiser_name || null, payload.ad_source || null, updatedAt, orderId);
       } else {
         await tx.$executeRawUnsafe(`UPDATE ${t.orders} SET order_status=?,total_product_price=?,product_discount=?,shipping_cost=?,additional_shipping_cost=?,shipping_discount=?,other_fee=?,total_payment=?,notes=?,warehouse_id=?,courier_id=?,is_ro=?,ro_count=?,promo_id=?,updated_at=? WHERE id=?`, nextOrderStatus, Number(payload.total_product_price), Number(payload.product_discount), Number(payload.shipping_cost), Number(payload.manual_fee_cod), Number(payload.shipping_discount || 0), Number(payload.other_fee), Number(payload.total_payment), payload.notes || null, warehouseId, courierId, roCount > 0 ? 1 : 0, roCount, payload.promo_id || null, updatedAt, orderId);
       }
+
+      await syncOrderTimestampColumns(tx, t.orders, orderId, nextOrderStatus, updatedAt);
+      await logOrderStatusChange(tx, { userId, orderCode: old.order_code || resolved.order_code, source, fromStatus: old.order_status, toStatus: nextOrderStatus, ipAddress, reason: old.order_status === nextOrderStatus ? 'Status disimpan ulang saat edit pesanan' : 'Status diperbarui saat edit pesanan' });
 
       if (courier) {
         const ship = await tx.$queryRawUnsafe<any[]>(`SELECT id FROM ${t.shipments} WHERE order_id=?`, orderId);
@@ -167,25 +250,39 @@ export async function PUT(request: Request) {
       let bankName = null, accountName = null, accountNumber = null;
       if (payload.payment_method === 'bank_transfer' && payload.payment_account_id) {
         const account = (await tx.$queryRawUnsafe<any[]>(`SELECT * FROM payment_accounts WHERE id=?`, Number(payload.payment_account_id)))[0];
-        if (account) { bankName = account.bank_name; accountName = account.account_name; accountNumber = account.account_number; }
+        if (account) {
+          bankName = account.bank_name;
+          accountName = account.account_name;
+          accountNumber = account.account_number;
+        }
       } else if (payload.payment_method === 'free' && payload.no_payment_method_id) {
         const method = (await tx.$queryRawUnsafe<any[]>(`SELECT * FROM no_payment_methods WHERE id=?`, Number(payload.no_payment_method_id)))[0];
-        if (method) { bankName = method.method_name; accountName = 'No Payment'; accountNumber = '-'; }
+        if (method) {
+          bankName = method.method_name;
+          accountName = 'No Payment';
+          accountNumber = '-';
+        }
       }
+
       const pay = await tx.$queryRawUnsafe<any[]>(`SELECT id FROM ${t.payments} WHERE order_id=?`, orderId);
       if (pay.length) {
         if (proofUrl) await tx.$executeRawUnsafe(`UPDATE ${t.payments} SET payment_status=?,payment_method=?,payment_proof_url=?,bank_name=?,account_name=?,account_number=?,fat_proof_url=? WHERE order_id=?`, payload.payment_status, payload.payment_method, proofUrl, bankName, accountName, accountNumber, payload.id_reff || null, orderId);
         else await tx.$executeRawUnsafe(`UPDATE ${t.payments} SET payment_status=?,payment_method=?,bank_name=?,account_name=?,account_number=?,fat_proof_url=? WHERE order_id=?`, payload.payment_status, payload.payment_method, bankName, accountName, accountNumber, payload.id_reff || null, orderId);
-      } else await tx.$executeRawUnsafe(`INSERT INTO ${t.payments}(order_id,payment_method,payment_status,payment_proof_url,bank_name,account_name,account_number,fat_proof_url) VALUES(?,?,?,?,?,?,?,?)`, orderId, payload.payment_method, payload.payment_status, proofUrl, bankName, accountName, accountNumber, payload.id_reff || null);
+      } else {
+        await tx.$executeRawUnsafe(`INSERT INTO ${t.payments}(order_id,payment_method,payment_status,payment_proof_url,bank_name,account_name,account_number,fat_proof_url) VALUES(?,?,?,?,?,?,?,?)`, orderId, payload.payment_method, payload.payment_status, proofUrl, bankName, accountName, accountNumber, payload.id_reff || null);
+      }
 
       await tx.$executeRawUnsafe(`DELETE FROM ${t.items} WHERE order_id=?`, orderId);
       for (const raw of items) {
         const item = { ...raw, product_id: Number(raw.product_id), qty: Number(raw.qty), price: Number(raw.price), discount: Number(raw.discount || 0) };
         if (item.qty < 1) throw new Error('Jumlah item minimal 1');
+
         const nameTable = item.is_gift ? ['gifts', 'gift_name'] : item.is_bundle ? ['product_bundles', 'bundle_name'] : ['products', 'product_name'];
         const found = (await tx.$queryRawUnsafe<any[]>(`SELECT ${nameTable[1]} name FROM ${nameTable[0]} WHERE id=?`, item.product_id))[0];
         if (!found) throw new Error('Produk atau hadiah tidak ditemukan');
+
         await tx.$executeRawUnsafe(`INSERT INTO ${t.items}(order_id,product_id,product_name,qty,price,discount,subtotal,is_gift,is_bundle) VALUES(?,?,?,?,?,?,?,?,?)`, orderId, item.product_id, found.name, item.qty, item.price, item.discount, (item.price - item.discount) * item.qty, item.is_gift ? 1 : 0, item.is_bundle ? 1 : 0);
+
         if (warehouseId) {
           if (item.is_bundle) {
             const parts = await tx.$queryRawUnsafe<any[]>(`SELECT product_id,qty FROM product_bundle_items WHERE bundle_id=?`, item.product_id);
@@ -204,6 +301,18 @@ export async function PUT(request: Request) {
           }
         }
       }
+
+      if (userId) {
+        await tx.activity_logs.create({
+          data: {
+            user_id: userId,
+            action: 'Edit Pesanan',
+            target: 'Pesanan',
+            details: `Mengedit pesanan (Order: ${resolved.order_code}, Source: ${source})`,
+            ip_address: ipAddress,
+          },
+        });
+      }
     }, { timeout: 30000 });
 
     return NextResponse.json({ status: 'success', message: 'Semua perubahan pesanan berhasil disimpan' });
@@ -212,10 +321,3 @@ export async function PUT(request: Request) {
     return NextResponse.json({ status: 'error', message: error.message || 'Gagal menyimpan perubahan' }, { status: 500 });
   }
 }
-
-
-
-
-
-
-

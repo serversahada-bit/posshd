@@ -7,24 +7,14 @@ import crypto from 'crypto';
 import fs from 'fs';
 import { emitEvent } from '@/lib/socket-server';
 import { cookies } from 'next/headers';
+import { hasColumn, syncOrderTimestampColumns } from '@/lib/orderTimestamps';
+import { logOrderCreated } from '@/lib/orderStatusLog';
 
 export const dynamic = 'force-dynamic';
 
 type NoPaymentMethodRow = {
   method_name: string;
 };
-
-async function hasColumn(tableName: string, columnName: string) {
-  const rows = await prisma.$queryRaw<Array<{ total: bigint | number }>>`
-    SELECT COUNT(*) AS total
-    FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = ${tableName}
-      AND COLUMN_NAME = ${columnName}
-  `;
-
-  return Number(rows[0]?.total || 0) > 0;
-}
 
 const pad2 = (value: number) => String(value).padStart(2, '0');
 
@@ -86,6 +76,7 @@ export async function POST(request: Request) {
     const cookieStore = await cookies();
     const formData = await request.formData();
     const createdByUserId = Number(cookieStore.get('sahada_user_id')?.value || formData.get('user_id')) || null;
+    const ipAddress = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || null;
     
     // Parse Customer Data
     const customerIdStr = formData.get('customer_id') as string;
@@ -186,12 +177,13 @@ export async function POST(request: Request) {
     const pQtys = formData.getAll('item_qty[]') as string[];
 
     const [ordersCsoHasAdvertiser, ordersCsoHasAdSource] = await Promise.all([
-      hasColumn('orders_cso', 'advertiser_name'),
-      hasColumn('orders_cso', 'ad_source'),
+      hasColumn(prisma, 'orders_cso', 'advertiser_name'),
+      hasColumn(prisma, 'orders_cso', 'ad_source'),
     ]);
 
     const orderResult = await prisma.$transaction(async (tx) => {
       const orderCode = await generateOrderCode(tx, { warehouseId, courierName, paymentMethod });
+      const eventAt = new Date();
 
       // 1. Create Order
       const order = await tx.orders_cso.create({
@@ -214,8 +206,12 @@ export async function POST(request: Request) {
           is_ro: isRo,
           ro_count: roCount,
           warehouse_id: warehouseId,
+          updated_at: eventAt,
         }
       });
+
+      await syncOrderTimestampColumns(tx, 'orders_cso', order.id, 'pending', eventAt);
+      await logOrderCreated(tx, { userId: createdByUserId, orderCode: order.order_code, source: 'CSO_AUTO', toStatus: 'pending', ipAddress });
 
       if ((ordersCsoHasAdvertiser && advertiserName) || (ordersCsoHasAdSource && adSource)) {
         const advUpdates: string[] = [];

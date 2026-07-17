@@ -5,20 +5,45 @@ let socket: Socket | null = null;
 
 const isLocalHostname = (hostname: string) => hostname === 'localhost' || hostname === '127.0.0.1';
 
+const normalizeBrowserSocketUrl = (rawUrl: string): string => {
+  if (typeof window === 'undefined') {
+    return rawUrl;
+  }
+
+  const trimmed = rawUrl.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  if (window.location.protocol === 'https:' && trimmed.startsWith('ws://')) {
+    return `wss://${trimmed.slice(5)}`;
+  }
+
+  if (window.location.protocol === 'https:' && trimmed.startsWith('http://')) {
+    return `https://${trimmed.slice(7)}`;
+  }
+
+  if (window.location.protocol === 'http:' && trimmed.startsWith('https://')) {
+    return `http://${trimmed.slice(8)}`;
+  }
+
+  return trimmed;
+};
+
 export const getBrowserSocketUrl = (): string | null => {
   if (typeof window === 'undefined') {
     return null;
   }
 
   if (process.env.NEXT_PUBLIC_WS_URL) {
-    return process.env.NEXT_PUBLIC_WS_URL;
+    return normalizeBrowserSocketUrl(process.env.NEXT_PUBLIC_WS_URL);
   }
 
   if (isLocalHostname(window.location.hostname)) {
-    return `http://${window.location.hostname}:3001`;
+    return `${window.location.protocol}//${window.location.hostname}:3001`;
   }
 
-  return null;
+  return `${window.location.protocol}//${window.location.hostname}:3001`;
 };
 
 export const getSocket = (): Socket | null => {

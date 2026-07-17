@@ -123,17 +123,52 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { startDate, endDate, status, creatorName, selectedIds } = body;
 
-    const [ordersCsoHasAdvertiser, ordersCsoHasAdSource, ordersCrmHasAdvertiser, ordersCrmHasAdSource] = await Promise.all([
+    const [
+      ordersHasPendingAt,
+      ordersHasProcessingAt,
+      ordersCsoHasAdvertiser,
+      ordersCsoHasAdSource,
+      ordersCsoHasPendingAt,
+      ordersCsoHasProcessingAt,
+      ordersCrmHasAdvertiser,
+      ordersCrmHasAdSource,
+      ordersCrmHasPendingAt,
+      ordersCrmHasProcessingAt,
+    ] = await Promise.all([
+      hasColumn('orders', 'pending_at'),
+      hasColumn('orders', 'processing_at'),
       hasColumn('orders_cso', 'advertiser_name'),
       hasColumn('orders_cso', 'ad_source'),
+      hasColumn('orders_cso', 'pending_at'),
+      hasColumn('orders_cso', 'processing_at'),
       hasColumn('orders_crm', 'advertiser_name'),
       hasColumn('orders_crm', 'ad_source'),
+      hasColumn('orders_crm', 'pending_at'),
+      hasColumn('orders_crm', 'processing_at'),
     ]);
 
+    const pendingFallback = `CASE
+              WHEN o.order_status = 'pending'
+              THEN COALESCE(o.updated_at, o.created_at)
+              ELSE o.created_at
+          END`;
+
+    const processingFallback = `CASE
+              WHEN o.order_status IN ('processing', 'ready_to_ship', 'shipped', 'completed', 'rts', 'problem')
+              THEN COALESCE(o.updated_at, o.created_at)
+              ELSE NULL
+          END`;
+
+    const ordersPendingAtSelect = ordersHasPendingAt ? 'COALESCE(o.pending_at, o.created_at)' : pendingFallback;
+    const ordersProcessingAtSelect = ordersHasProcessingAt ? 'o.processing_at' : processingFallback;
     const ordersCsoAdvertiserSelect = ordersCsoHasAdvertiser ? 'o.advertiser_name' : 'NULL';
     const ordersCsoAdSourceSelect = ordersCsoHasAdSource ? 'o.ad_source' : 'NULL';
+    const ordersCsoPendingAtSelect = ordersCsoHasPendingAt ? 'COALESCE(o.pending_at, o.created_at)' : pendingFallback;
+    const ordersCsoProcessingAtSelect = ordersCsoHasProcessingAt ? 'o.processing_at' : processingFallback;
     const ordersCrmAdvertiserSelect = ordersCrmHasAdvertiser ? 'o.advertiser_name' : 'NULL';
     const ordersCrmAdSourceSelect = ordersCrmHasAdSource ? 'o.ad_source' : 'NULL';
+    const ordersCrmPendingAtSelect = ordersCrmHasPendingAt ? 'COALESCE(o.pending_at, o.created_at)' : pendingFallback;
+    const ordersCrmProcessingAtSelect = ordersCrmHasProcessingAt ? 'o.processing_at' : processingFallback;
 
     let conditionQuery = '';
     const params: any[] = [];
@@ -188,7 +223,8 @@ export async function POST(request: Request) {
     const rawQuery = `
       SELECT * FROM (
           SELECT 
-              o.id, o.order_code, o.customer_id, o.created_at, o.updated_at, 
+              o.id, o.order_code, o.customer_id, ${ordersPendingAtSelect} as created_at, o.updated_at,
+              ${ordersProcessingAtSelect} as processing_at,
               o.total_product_price, o.shipping_cost, o.total_payment, o.product_discount, o.other_fee,
               o.additional_shipping_cost,
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
@@ -211,7 +247,8 @@ export async function POST(request: Request) {
           UNION ALL
           
           SELECT 
-              o.id, o.order_code, o.customer_id, o.created_at, o.updated_at, 
+              o.id, o.order_code, o.customer_id, ${ordersCsoPendingAtSelect} as created_at, o.updated_at,
+              ${ordersCsoProcessingAtSelect} as processing_at,
               o.total_product_price, o.shipping_cost, o.total_payment, o.product_discount, o.other_fee,
               o.additional_shipping_cost,
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
@@ -234,7 +271,8 @@ export async function POST(request: Request) {
           UNION ALL
           
           SELECT 
-              o.id, o.order_code, o.customer_id, o.created_at, o.updated_at, 
+              o.id, o.order_code, o.customer_id, ${ordersCrmPendingAtSelect} as created_at, o.updated_at,
+              ${ordersCrmProcessingAtSelect} as processing_at,
               o.total_product_price, o.shipping_cost, o.total_payment, o.product_discount, o.other_fee,
               o.additional_shipping_cost,
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
@@ -380,9 +418,10 @@ export async function POST(request: Request) {
         codValue = toSafeNumber(order.total_payment);
       }
 
-      const processedAt = order.updated_at || order.created_at || null;
-      const tanggalProses = formatExcelDate(processedAt);
-      const timestamp = formatExcelDateTime(processedAt);
+      const processedAt = order.processing_at || order.created_at || null;
+      const orderMasukAt = order.created_at || null;
+      const tanggalProses = formatExcelDateTime(processedAt);
+      const timestamp = formatExcelDateTime(orderMasukAt);
       const noResiStr = order.tracking_number ? toSafeString(order.tracking_number) : '';
 
       const usia = order.age != null ? toExcelValue(order.age) : '-';

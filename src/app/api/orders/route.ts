@@ -3,6 +3,8 @@ import prisma from '@/lib/db';
 import { emitEvent } from '@/lib/socket-server';
 import { orders_order_status, orders_order_type, payments_payment_method } from '@prisma/client';
 import { cookies } from 'next/headers';
+import { syncOrderTimestampColumns } from '@/lib/orderTimestamps';
+import { logOrderCreated, logOrderStatusChange } from '@/lib/orderStatusLog';
 
 // GET /api/orders — setara olahan.php POIN
 export async function GET(request: NextRequest) {
@@ -58,7 +60,9 @@ export async function GET(request: NextRequest) {
 // POST /api/orders — buat pesanan baru (setara buat_pesanan.php)
 export async function POST(request: NextRequest) {
   try {
-    const createdByUserId = Number((await cookies()).get('sahada_user_id')?.value) || null;
+    const cookieStore = await cookies();
+    const createdByUserId = Number(cookieStore.get('sahada_user_id')?.value) || null;
+    const ipAddress = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || null;
     const body = await request.json();
     const {
       customer_id,
@@ -111,6 +115,8 @@ export async function POST(request: NextRequest) {
       (other_fee ?? 0);
 
     // Prisma Transaction for nested creation
+    const eventAt = new Date();
+
     const order = await prisma.orders.create({
       data: {
         order_code,
@@ -126,6 +132,7 @@ export async function POST(request: NextRequest) {
         other_fee: other_fee ?? 0,
         total_payment,
         notes: notes || null,
+        updated_at: eventAt,
         order_items: {
           create: items.map(item => ({
             product_id: item.product_id,
@@ -144,6 +151,9 @@ export async function POST(request: NextRequest) {
       }
     });
 
+    await syncOrderTimestampColumns(prisma, 'orders', order.id, 'pending', eventAt);
+    await logOrderCreated(prisma, { userId: createdByUserId, orderCode: order.order_code, source: 'CSO', toStatus: 'pending', ipAddress });
+
     await emitEvent('NEW_ORDER');
     await emitEvent('REFRESH_OLAHAN');
 
@@ -161,6 +171,9 @@ export async function POST(request: NextRequest) {
 // PATCH /api/orders — update status pesanan
 export async function PATCH(request: NextRequest) {
   try {
+    const cookieStore = await cookies();
+    const userId = Number(cookieStore.get('sahada_user_id')?.value || 0);
+    const ipAddress = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || null;
     const body = await request.json();
     const { id, order_status } = body as { id: number; order_status: orders_order_status };
 
@@ -168,10 +181,22 @@ export async function PATCH(request: NextRequest) {
       return Response.json({ success: false, message: 'ID dan status wajib diisi' }, { status: 400 });
     }
 
+    const eventAt = new Date();
+
+    const existingOrder = await prisma.orders.findUnique({ where: { id: Number(id) }, select: { order_code: true, order_status: true } });
+    if (!existingOrder) {
+      return Response.json({ success: false, message: 'Pesanan tidak ditemukan' }, { status: 404 });
+    }
+
     await prisma.orders.update({
       where: { id: Number(id) },
-      data: { order_status },
+      data: { order_status, updated_at: eventAt },
     });
+
+    await syncOrderTimestampColumns(prisma, 'orders', Number(id), order_status, eventAt);
+    if (existingOrder.order_status !== order_status) {
+      await logOrderStatusChange(prisma, { userId, orderCode: existingOrder.order_code, source: 'CSO', fromStatus: existingOrder.order_status, toStatus: order_status, ipAddress });
+    }
 
     await emitEvent('NEW_ORDER');
     await emitEvent('REFRESH_OLAHAN');
