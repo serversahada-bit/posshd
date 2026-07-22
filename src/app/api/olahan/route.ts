@@ -148,7 +148,7 @@ export async function GET(request: Request) {
         LEFT JOIN payments p ON o.id = p.order_id
         LEFT JOIN shipments s ON o.id = s.order_id
         LEFT JOIN users cu ON cu.id = o.created_by_user_id
-        WHERE (p.payment_method IS NULL OR p.payment_method != 'bank_transfer' OR p.payment_status = 'paid')
+        WHERE (p.payment_method IS NULL OR p.payment_method != 'bank_transfer' OR p.payment_status IN ('paid', 'rejected'))
         
         UNION ALL
 
@@ -189,7 +189,7 @@ export async function GET(request: Request) {
         LEFT JOIN payments_cso p ON o.id = p.order_id
         LEFT JOIN shipments_cso s ON o.id = s.order_id
         LEFT JOIN users cu ON cu.id = o.created_by_user_id
-        WHERE (p.payment_method IS NULL OR p.payment_method != 'bank_transfer' OR p.payment_status = 'paid')
+        WHERE (p.payment_method IS NULL OR p.payment_method != 'bank_transfer' OR p.payment_status IN ('paid', 'rejected'))
         
         UNION ALL
         
@@ -230,7 +230,7 @@ export async function GET(request: Request) {
         LEFT JOIN payments_crm p ON o.id = p.order_id
         LEFT JOIN shipments_crm s ON o.id = s.order_id
         LEFT JOIN users cu ON cu.id = o.created_by_user_id
-        WHERE (p.payment_method IS NULL OR p.payment_method != 'bank_transfer' OR p.payment_status = 'paid')
+        WHERE (p.payment_method IS NULL OR p.payment_method != 'bank_transfer' OR p.payment_status IN ('paid', 'rejected'))
       ) as combined_orders
       WHERE 1=1 ${conditionQuery}
       ORDER BY ${orderByColumn} DESC, created_at DESC

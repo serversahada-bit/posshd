@@ -432,6 +432,7 @@ model payments {
   payment_proof_url String?                  @db.Text
   fat_proof_url     String?                  @db.Text
   payment_status    payments_payment_status? @default(unpaid)
+  reject_reason     String?                  @db.Text
   paid_at           DateTime?                @db.DateTime(0)
   created_at        DateTime                 @default(now()) @db.Timestamp(0)
   updated_at        DateTime                 @default(now()) @db.Timestamp(0)
@@ -450,6 +451,7 @@ model payments_crm {
   payment_proof_url String?                      @db.Text
   fat_proof_url     String?                      @db.Text
   payment_status    payments_crm_payment_status? @default(unpaid)
+  reject_reason     String?                      @db.Text
   paid_at           DateTime?                    @db.DateTime(0)
   created_at        DateTime                     @default(now()) @db.Timestamp(0)
   updated_at        DateTime                     @default(now()) @db.Timestamp(0)
@@ -467,6 +469,7 @@ model payments_cso {
   payment_proof_url String?                      @db.Text
   fat_proof_url     String?                      @db.Text
   payment_status    payments_cso_payment_status? @default(unpaid)
+  reject_reason     String?                      @db.Text
   paid_at           DateTime?                    @db.DateTime(0)
   created_at        DateTime                     @default(now()) @db.Timestamp(0)
   updated_at        DateTime                     @default(now()) @db.Timestamp(0)
@@ -485,6 +488,7 @@ model payments_resend {
   payment_proof_url String?                         @db.Text
   fat_proof_url     String?                         @db.Text
   payment_status    payments_resend_payment_status? @default(unpaid)
+  reject_reason     String?                         @db.Text
   paid_at           DateTime?                       @db.DateTime(0)
   created_at        DateTime                        @default(now()) @db.Timestamp(0)
   updated_at        DateTime                        @default(now()) @db.Timestamp(0)

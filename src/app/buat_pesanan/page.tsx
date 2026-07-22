@@ -70,6 +70,7 @@ export default function BuatPesananPage() {
   const [showDestOpts, setShowDestOpts] = useState(false);
 
   const [orderCode, setOrderCode] = useState('');
+  const [orderCodeError, setOrderCodeError] = useState('');
   const [promoId, setPromoId] = useState('');
   const [age, setAge] = useState('');
   const [complaint, setComplaint] = useState('');
@@ -181,6 +182,17 @@ export default function BuatPesananPage() {
       setDestOpts(json || []);
       setShowDestOpts(true);
     }, 300);
+  };
+
+  const handleOrderCodeChange = (value: string) => {
+    const normalized = value.toUpperCase();
+    if (/^[A-Z0-9]*$/.test(normalized)) {
+      setOrderCode(normalized);
+      setOrderCodeError('');
+      return;
+    }
+
+    setOrderCodeError('ID Order hanya boleh berisi huruf dan angka.');
   };
 
   const calculateTotals = () => {
@@ -407,6 +419,10 @@ export default function BuatPesananPage() {
       return Swal.fire('Error', 'Kode Scalev harus tepat 13 karakter', 'error');
     }
 
+    if (paymentMethod === 'bank_transfer' && !paymentProofFile) {
+      return Swal.fire('Error', 'Bukti transfer wajib diupload untuk Bank Transfer (Manual)', 'error');
+    }
+
     setSubmitting(true);
     const fd = new FormData();
     fd.append('user_id', String(user?.id ?? 0));
@@ -506,8 +522,12 @@ export default function BuatPesananPage() {
 
             <div className="md:col-span-2">
               <label className="block text-xs font-medium text-slate-500 mb-1">ID Order (Scalev) <span className="text-red-500">*</span></label>
-              <input required value={orderCode} onChange={e => setOrderCode(e.target.value)} type="text" className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 outline-none text-sm placeholder:text-slate-400" placeholder="Contoh: SCV-123456" />
-              {orderCode && <p className={`text-[11px] font-medium mt-1 ${orderCode.length === 13 ? 'text-emerald-600' : 'text-red-500'}`}>{orderCode.length === 13 ? 'Karakter Pas (13)' : `Tidak valid (${orderCode.length})`}</p>}
+              <input required value={orderCode} onChange={e => handleOrderCodeChange(e.target.value)} type="text" className={`w-full border rounded-lg px-4 py-2.5 focus:ring-1 outline-none text-sm placeholder:text-slate-400 ${orderCodeError ? 'border-red-400 bg-red-50 text-red-600 focus:ring-red-200 focus:border-red-400' : 'border-slate-300 focus:ring-purple-300 focus:border-purple-300'}`} placeholder="Contoh: SCV1234567890" />
+              {orderCodeError ? (
+                <p className="text-[11px] font-medium mt-1 text-red-500">{orderCodeError}</p>
+              ) : (
+                orderCode && <p className={`text-[11px] font-medium mt-1 ${orderCode.length === 13 ? 'text-emerald-600' : 'text-red-500'}`}>{orderCode.length === 13 ? 'Karakter Pas (13)' : `Tidak valid (${orderCode.length})`}</p>
+              )}
             </div>
 
             <div>
@@ -780,7 +800,7 @@ export default function BuatPesananPage() {
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-purple-500 mb-1">Upload Bukti Transfer</label>
-                      <input type="file" accept="image/*" onChange={e => {
+                      <input required={paymentMethod === 'bank_transfer'} type="file" accept="image/*" onChange={e => {
                         const f = e.target.files?.[0];
                         if (f) { setPaymentProofFile(f); setPaymentProofPreview(URL.createObjectURL(f)); }
                       }} className="w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-violet-100 file:text-purple-500 hover:file:bg-violet-200" />
@@ -960,3 +980,5 @@ export default function BuatPesananPage() {
     </div>
   );
 }
+
+

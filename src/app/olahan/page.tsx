@@ -68,7 +68,8 @@ const getErrorMessage = (error: unknown) => (error instanceof Error ? error.mess
 export default function OlahanPage() {
   const { user } = useAuth();
   const searchParams = useSearchParams();
-  const sortBy = searchParams.get('sort') ?? 'created_at';
+  const sortByParam = searchParams.get('sort') ?? 'created_at';
+  const statusParam = searchParams.get('status') ?? '';
 
   const [data, setData] = useState<OrderItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,9 +81,16 @@ export default function OlahanPage() {
 
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState(statusParam);
   const [creatorFilter, setCreatorFilter] = useState('');
   const [warehouseFilter, setWarehouseFilter] = useState('');
+
+  // Sync state when searchParams change
+  useEffect(() => {
+    setStatusFilter(searchParams.get('status') ?? '');
+  }, [searchParams]);
+
+  const sortBy = sortByParam;
   const [users, setUsers] = useState<UserFilterOption[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseFilterOption[]>([]);
 

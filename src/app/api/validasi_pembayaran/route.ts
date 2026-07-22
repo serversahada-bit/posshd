@@ -14,6 +14,7 @@ type UnvalidatedOrder = {
   bank_name: string | null;
   account_name: string | null;
   account_number: string | null;
+  reject_reason: string | null;
   source_table: 'CSO' | 'CSO_AUTO' | 'CRM';
 };
 
@@ -43,6 +44,7 @@ export async function GET() {
               p.bank_name,
               p.account_name,
               p.account_number,
+              p.reject_reason,
               'CSO' as source_table
           FROM orders o
           LEFT JOIN customers c ON o.customer_id = c.id
@@ -63,6 +65,7 @@ export async function GET() {
               p.bank_name,
               p.account_name,
               p.account_number,
+              p.reject_reason,
               'CSO_AUTO' as source_table
           FROM orders_cso o
           LEFT JOIN customers c ON o.customer_id = c.id
@@ -83,6 +86,7 @@ export async function GET() {
               p.bank_name,
               p.account_name,
               p.account_number,
+              p.reject_reason,
               'CRM' as source_table
           FROM orders_crm o
           LEFT JOIN customers c ON o.customer_id = c.id
@@ -151,20 +155,34 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'reject') {
+      const { reject_reason } = body;
+      
       if (source_table === 'CRM') {
-        await prisma.payments_crm.update({
+        const payment = await prisma.payments_crm.update({
           where: { id: pid },
-          data: { payment_status: 'rejected' }
+          data: { payment_status: 'rejected', reject_reason }
+        });
+        await prisma.orders_crm.update({
+          where: { id: payment.order_id },
+          data: { order_status: 'problem' }
         });
       } else if (source_table === 'CSO_AUTO') {
-        await prisma.payments_cso.update({
+        const payment = await prisma.payments_cso.update({
           where: { id: pid },
-          data: { payment_status: 'rejected' }
+          data: { payment_status: 'rejected', reject_reason }
+        });
+        await prisma.orders_cso.update({
+          where: { id: payment.order_id },
+          data: { order_status: 'problem' }
         });
       } else {
-        await prisma.payments.update({
+        const payment = await prisma.payments.update({
           where: { id: pid },
-          data: { payment_status: 'rejected' }
+          data: { payment_status: 'rejected', reject_reason }
+        });
+        await prisma.orders.update({
+          where: { id: payment.order_id },
+          data: { order_status: 'problem' }
         });
       }
 
@@ -174,9 +192,11 @@ export async function POST(request: NextRequest) {
           user_id: 1,
           action: 'Reject FAT',
           target: 'Validasi Pembayaran',
-          details: `Tolak pembayaran ID: ${pid}`
+          details: `Tolak pembayaran ID: ${pid}${reject_reason ? ` - Alasan: ${reject_reason}` : ''}`
         }
       });
+
+      await emitEvent('NEW_OLAHAN');
 
       return NextResponse.json({ status: 'success', message: 'Pembayaran ditolak.' });
     }

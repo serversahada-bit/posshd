@@ -84,7 +84,23 @@ export default function ValidasiPembayaranPage() {
   };
 
   const handleRejectClick = async (order: any) => {
-    if (!confirm('Tolak pembayaran ini?')) return;
+    const { value: reason, isConfirmed } = await Swal.fire({
+      title: 'Tolak Pembayaran',
+      input: 'textarea',
+      inputLabel: 'Alasan Penolakan',
+      inputPlaceholder: 'Masukkan alasan kenapa pembayaran ditolak...',
+      showCancelButton: true,
+      confirmButtonText: 'Tolak Pembayaran',
+      cancelButtonText: 'Batal',
+      confirmButtonColor: '#ef4444',
+      inputValidator: (value) => {
+        if (!value || value.trim() === '') {
+          return 'Alasan penolakan wajib diisi!';
+        }
+      }
+    });
+
+    if (!isConfirmed) return;
     
     try {
       const res = await fetch('/api/validasi_pembayaran', {
@@ -93,7 +109,8 @@ export default function ValidasiPembayaranPage() {
         body: JSON.stringify({
           action: 'reject',
           payment_id: order.payment_id,
-          source_table: order.source_table
+          source_table: order.source_table,
+          reject_reason: reason.trim()
         })
       });
       const json = await res.json();
@@ -213,7 +230,14 @@ export default function ValidasiPembayaranPage() {
                     </td>
                     <td className="p-4">
                       {row.payment_status === 'rejected' ? (
-                        <span className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-red-50 text-red-600 border-red-200">Ditolak</span>
+                        <div className="flex flex-col gap-1 items-start">
+                          <span className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-red-50 text-red-600 border-red-200">Ditolak</span>
+                          {row.reject_reason && (
+                            <span className="text-[10px] text-red-500 font-medium break-words max-w-[150px] leading-tight">
+                              Alasan: {row.reject_reason}
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <span className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-amber-50 text-amber-600 border-amber-200">Menunggu</span>
                       )}

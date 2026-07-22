@@ -38,7 +38,16 @@ export async function POST(request: Request) {
     const age = parseInt(formData.get('age') as string, 10) || null;
     const complaint = formData.get('complaint') as string;
     
-    let customerId = parseInt(customerIdStr, 10);
+    let customerId = 0;
+    if (whatsapp) {
+      const existing = await prisma.customers.findFirst({
+        where: { whatsapp_number: whatsapp },
+        orderBy: { id: 'desc' }
+      });
+      if (existing) {
+        customerId = existing.id;
+      }
+    }
 
     // If no customer ID but name is provided, create a new customer
     if (!customerId && customerName) {

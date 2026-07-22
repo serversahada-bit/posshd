@@ -230,7 +230,7 @@ export async function POST(request: Request) {
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
               o.advertiser_name, o.ad_source,
               c.name as customer_name, c.whatsapp_number, c.email, c.address, c.subdistrict, c.age, c.complaint,
-              p.payment_method,
+              p.payment_method, p.payment_status,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
               w.code as warehouse_code,
@@ -254,7 +254,7 @@ export async function POST(request: Request) {
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
               ${ordersCsoAdvertiserSelect} as advertiser_name, ${ordersCsoAdSourceSelect} as ad_source,
               c.name as customer_name, c.whatsapp_number, c.email, c.address, c.subdistrict, c.age, c.complaint,
-              p.payment_method,
+              p.payment_method, p.payment_status,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
               w.code as warehouse_code,
@@ -278,7 +278,7 @@ export async function POST(request: Request) {
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
               ${ordersCrmAdvertiserSelect} as advertiser_name, ${ordersCrmAdSourceSelect} as ad_source,
               c.name as customer_name, c.whatsapp_number, c.email, c.address, c.subdistrict, c.age, c.complaint,
-              p.payment_method,
+              p.payment_method, p.payment_status,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
               w.code as warehouse_code,
@@ -519,7 +519,9 @@ export async function POST(request: Request) {
       }
 
       let buktiTransfer = '';
-      if (['processing', 'ready_to_ship', 'shipped'].includes(order.order_status)) {
+      if (order.payment_status === 'rejected') {
+        buktiTransfer = 'rejected';
+      } else if (['processing', 'ready_to_ship', 'shipped'].includes(order.order_status)) {
         buktiTransfer = 'Process';
       }
 

@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSocketEvent } from '@/hooks/useSocketEvent';
 import {
@@ -55,10 +55,15 @@ function NavItem({ href, icon: Icon, label, active }: NavItemProps) {
   );
 }
 
-function SubmenuItem({ href, label, active }: SubmenuItemProps) {
+function SubmenuItem({ href, label, active, count }: SubmenuItemProps & { count?: number }) {
   return (
-    <Link href={href} className={`sidebar__sublink ${active ? 'sidebar__sublink--active' : ''}`}>
-      {label}
+    <Link href={href} className={`sidebar__sublink ${active ? 'sidebar__sublink--active' : ''} flex items-center justify-between`}>
+      <span>{label}</span>
+      {count !== undefined && count > 0 && (
+        <span className="bg-red-100 text-red-600 text-xs font-bold px-1.5 py-0.5 rounded">
+          {count}
+        </span>
+      )}
     </Link>
   );
 }
@@ -68,6 +73,23 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
   const searchParams = useSearchParams();
   const { user, logout } = useAuth();
   const [openSubmenu, setOpenSubmenu] = useState<string | null>(null);
+  const [problemCount, setProblemCount] = useState(0);
+
+  const fetchProblemCount = useCallback(async () => {
+    try {
+      const res = await fetch('/api/olahan?status=problem');
+      const json = await res.json();
+      if (json.status === 'success' && json.data) {
+        setProblemCount(json.data.length);
+      }
+    } catch (err) {
+      console.error('Failed to fetch problem count:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchProblemCount();
+  }, [fetchProblemCount]);
 
   // Close sidebar on route change on mobile
   useEffect(() => {
@@ -83,6 +105,11 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
   useSocketEvent('NEW_OLAHAN', () => {
     const audio = new Audio('/notif.mp3');
     audio.play().catch(e => console.error('Audio play error (requires user interaction first):', e));
+    void fetchProblemCount();
+  });
+
+  useSocketEvent('REFRESH_OLAHAN', () => {
+    void fetchProblemCount();
   });
 
   const roleInitial = user?.name?.charAt(0)?.toUpperCase() || 'A';
@@ -107,7 +134,6 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
   };
 
   const isPesananActive = ['/buat_pesanan', '/buat_pesanan_cso', '/buat_pesanan_crm', '/buat_pesanan_resend', '/orders'].includes(pathname);
-  const olahanSort = searchParams.get('sort') ?? 'created_at';
   const isDataPesananActive = pathname === '/olahan';
   const isGudangActive = ['/setting_gudang', '/stok_produk', '/stok_hadiah'].includes(pathname);
   const isPembayaranActive = ['/setting_payment', '/setting_no_payment'].includes(pathname);
@@ -184,9 +210,11 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
                     </button>
                     
                     <div className={`sidebar__submenu ${(isDataPesananActive || openSubmenu === 'data-pesanan') ? '' : 'sidebar__submenu--closed'}`}>
-                        <SubmenuItem href="/olahan?sort=created_at" label="Create Order" active={pathname === '/olahan' && olahanSort === 'created_at'} />
-                        <SubmenuItem href="/olahan?sort=processing_at" label="Processing At" active={pathname === '/olahan' && olahanSort === 'processing_at'} />
-                        <SubmenuItem href="/olahan?sort=last_update" label="Last Update" active={pathname === '/olahan' && olahanSort === 'last_update'} />
+                        <SubmenuItem href="/olahan" label="Semua Status" active={pathname === '/olahan' && !searchParams.has('status') && !searchParams.has('sort')} />
+                        <SubmenuItem href="/olahan?sort=created_at" label="Create Order" active={pathname === '/olahan' && searchParams.get('sort') === 'created_at'} />
+                        <SubmenuItem href="/olahan?sort=processing_at" label="Processing At" active={pathname === '/olahan' && searchParams.get('sort') === 'processing_at'} />
+                        <SubmenuItem href="/olahan?sort=last_update" label="Last Update" active={pathname === '/olahan' && searchParams.get('sort') === 'last_update'} />
+                        <SubmenuItem href="/olahan?status=problem" label="Problem" active={pathname === '/olahan' && searchParams.get('status') === 'problem'} count={problemCount} />
                     </div>
                 </div>
                 )}
