@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+import { findRemoteCustomerByWhatsapp } from '@/lib/remote-customer-db';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,14 +13,10 @@ export async function GET(request: Request) {
   }
 
   try {
-    const customer = await prisma.customers.findFirst({
-      where: { whatsapp_number: wa },
-      orderBy: { created_at: 'desc' },
-    });
+    const customer = await findRemoteCustomerByWhatsapp(wa);
 
     if (customer) {
-      // Hitung selisih hari dari created_at
-      const createdDate = new Date(customer.created_at);
+      const createdDate = customer.registered_at ? new Date(customer.registered_at) : new Date();
       const now = new Date();
       const diffTime = Math.abs(now.getTime() - createdDate.getTime());
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -34,6 +30,9 @@ export async function GET(request: Request) {
           address: customer.address,
           subdistrict: customer.subdistrict,
           whatsapp_number: customer.whatsapp_number,
+          desa: customer.desa,
+          city: customer.city,
+          province: customer.province,
         },
         days_since_created: diffDays,
       });

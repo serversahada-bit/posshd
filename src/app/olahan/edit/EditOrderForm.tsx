@@ -123,6 +123,7 @@ export default function EditOrderForm() {
           })),
         );
         setForm({
+          order_code: order.order_code || '',
           customer_name: order.customer_name || '',
           whatsapp_number: order.whatsapp_number || '',
           email: order.email || '',
@@ -771,7 +772,15 @@ export default function EditOrderForm() {
           <aside className="space-y-4 xl:sticky xl:top-6">
             <div className="rounded-2xl border border-purple-100 bg-white px-5 py-4 shadow-sm">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-purple-500">Ringkasan Pesanan</p>
-              <p className="mt-2 text-lg font-bold text-slate-800">{data.order.order_code}</p>
+              <label className="mt-3 block">
+                <span className="mb-1 block text-xs font-medium text-slate-500">ID Pesanan</span>
+                <input
+                  required
+                  className={inputClass}
+                  value={form.order_code || ''}
+                  onChange={(event) => set('order_code', event.target.value.toUpperCase())}
+                />
+              </label>
               <p className="mt-1 text-sm text-slate-500">Sumber: {source.replace('_', ' ')}</p>
               <button
                 type="submit"

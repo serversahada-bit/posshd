@@ -190,6 +190,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
                     </div>
                 </div>
                 )}
+                {hasAccess('olahan') && <NavItem href="/data_lengkap_customer" icon={PackageOpen} label="Data Lengkap" active={pathname === '/data_lengkap_customer'} />} 
                 </div>
             </div>
 
@@ -286,4 +287,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
     </>
   );
 }
+
+
+
 

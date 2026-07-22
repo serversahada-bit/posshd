@@ -192,13 +192,18 @@ export async function PUT(request: Request) {
 
     const resolved = await resolveOrder(identifier, source);
     if (!resolved) return NextResponse.json({ status: 'error', message: 'Pesanan tidak ditemukan' }, { status: 404 });
+    const t = tableMap[source];
+    const nextOrderCode = String(payload.order_code || '').trim().toUpperCase();
+    if (!nextOrderCode) return NextResponse.json({ status: 'error', message: 'ID pesanan wajib diisi' }, { status: 400 });
+
+    const duplicateOrder = await prisma.$queryRawUnsafe<any[]>(`SELECT id FROM ${t.orders} WHERE order_code = ? AND id <> ? LIMIT 1`, nextOrderCode, Number(resolved.id));
+    if (duplicateOrder.length) return NextResponse.json({ status: 'error', message: 'ID pesanan sudah digunakan. Gunakan ID lain.' }, { status: 400 });
 
     const proofUrl = await saveProof(form.get('payment_proof') as File | null);
     const updatedAt = new Date();
     const cookieStore = await cookies();
     const userId = Number(cookieStore.get('sahada_user_id')?.value || 0);
     const ipAddress = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || null;
-    const t = tableMap[source];
     const orderId = Number(resolved.id);
     const items = (payload.items || []) as ItemInput[];
     if (!items.length) return NextResponse.json({ status: 'error', message: 'Pesanan harus memiliki minimal satu produk atau hadiah' }, { status: 400 });
@@ -233,13 +238,14 @@ export async function PUT(request: Request) {
       const nextOrderStatus = 'pending';
 
       if (source === 'CSO') {
-        await tx.$executeRawUnsafe(`UPDATE ${t.orders} SET order_status=?,total_product_price=?,product_discount=?,shipping_cost=?,additional_shipping_cost=?,shipping_discount=?,other_fee=?,total_payment=?,notes=?,warehouse_id=?,courier_id=?,promo_id=?,advertiser_name=?,ad_source=?,updated_at=? WHERE id=?`, nextOrderStatus, Number(payload.total_product_price), Number(payload.product_discount), Number(payload.shipping_cost), Number(payload.manual_fee_cod), Number(payload.shipping_discount || 0), Number(payload.other_fee), Number(payload.total_payment), payload.notes || null, warehouseId, courierId, payload.promo_id || null, payload.advertiser_name || null, payload.ad_source || null, updatedAt, orderId);
+        await tx.$executeRawUnsafe(`UPDATE ${t.orders} SET order_code=?, order_status=?,total_product_price=?,product_discount=?,shipping_cost=?,additional_shipping_cost=?,shipping_discount=?,other_fee=?,total_payment=?,notes=?,warehouse_id=?,courier_id=?,promo_id=?,advertiser_name=?,ad_source=?,updated_at=? WHERE id=?`, nextOrderCode, nextOrderStatus, Number(payload.total_product_price), Number(payload.product_discount), Number(payload.shipping_cost), Number(payload.manual_fee_cod), Number(payload.shipping_discount || 0), Number(payload.other_fee), Number(payload.total_payment), payload.notes || null, warehouseId, courierId, payload.promo_id || null, payload.advertiser_name || null, payload.ad_source || null, updatedAt, orderId);
       } else {
-        await tx.$executeRawUnsafe(`UPDATE ${t.orders} SET order_status=?,total_product_price=?,product_discount=?,shipping_cost=?,additional_shipping_cost=?,shipping_discount=?,other_fee=?,total_payment=?,notes=?,warehouse_id=?,courier_id=?,is_ro=?,ro_count=?,promo_id=?,updated_at=? WHERE id=?`, nextOrderStatus, Number(payload.total_product_price), Number(payload.product_discount), Number(payload.shipping_cost), Number(payload.manual_fee_cod), Number(payload.shipping_discount || 0), Number(payload.other_fee), Number(payload.total_payment), payload.notes || null, warehouseId, courierId, roCount > 0 ? 1 : 0, roCount, payload.promo_id || null, updatedAt, orderId);
+        await tx.$executeRawUnsafe(`UPDATE ${t.orders} SET order_code=?, order_status=?,total_product_price=?,product_discount=?,shipping_cost=?,additional_shipping_cost=?,shipping_discount=?,other_fee=?,total_payment=?,notes=?,warehouse_id=?,courier_id=?,is_ro=?,ro_count=?,promo_id=?,updated_at=? WHERE id=?`, nextOrderCode, nextOrderStatus, Number(payload.total_product_price), Number(payload.product_discount), Number(payload.shipping_cost), Number(payload.manual_fee_cod), Number(payload.shipping_discount || 0), Number(payload.other_fee), Number(payload.total_payment), payload.notes || null, warehouseId, courierId, roCount > 0 ? 1 : 0, roCount, payload.promo_id || null, updatedAt, orderId);
       }
 
       await syncOrderTimestampColumns(tx, t.orders, orderId, nextOrderStatus, updatedAt);
-      await logOrderStatusChange(tx, { userId, orderCode: old.order_code || resolved.order_code, source, fromStatus: old.order_status, toStatus: nextOrderStatus, ipAddress, reason: old.order_status === nextOrderStatus ? 'Status disimpan ulang saat edit pesanan' : 'Status diperbarui saat edit pesanan' });
+      const logOrderCode = nextOrderCode || old.order_code || resolved.order_code;
+      await logOrderStatusChange(tx, { userId, orderCode: logOrderCode, source, fromStatus: old.order_status, toStatus: nextOrderStatus, ipAddress, reason: old.order_status === nextOrderStatus ? 'Status disimpan ulang saat edit pesanan' : 'Status diperbarui saat edit pesanan' });
 
       if (courier) {
         const ship = await tx.$queryRawUnsafe<any[]>(`SELECT id FROM ${t.shipments} WHERE order_id=?`, orderId);
@@ -308,7 +314,9 @@ export async function PUT(request: Request) {
             user_id: userId,
             action: 'Edit Pesanan',
             target: 'Pesanan',
-            details: `Mengedit pesanan (Order: ${resolved.order_code}, Source: ${source})`,
+            details: nextOrderCode !== (old.order_code || resolved.order_code)
+              ? `Mengedit pesanan (Order: ${old.order_code || resolved.order_code} -> ${nextOrderCode}, Source: ${source})`
+              : `Mengedit pesanan (Order: ${nextOrderCode}, Source: ${source})`,
             ip_address: ipAddress,
           },
         });
@@ -321,3 +329,9 @@ export async function PUT(request: Request) {
     return NextResponse.json({ status: 'error', message: error.message || 'Gagal menyimpan perubahan' }, { status: 500 });
   }
 }
+
+
+
+
+
+
