@@ -1,11 +1,14 @@
 'use client';
 
-import { useEffect } from 'react';
-import { getSocket } from '@/lib/socket';
+import { useEffect, useRef } from 'react';
+import { getBrowserSocketUrl, getSocket } from '@/lib/socket';
 
 export default function RealtimeConnection() {
+  const hasShownTimeoutWarningRef = useRef(false);
+
   useEffect(() => {
     const socket = getSocket();
+    const socketUrl = getBrowserSocketUrl();
 
     if (!socket) {
       console.warn('RealtimeConnection: NEXT_PUBLIC_WS_URL belum dikonfigurasi atau URL socket tidak tersedia.');
@@ -13,11 +16,20 @@ export default function RealtimeConnection() {
     }
 
     const handleConnect = () => {
+      hasShownTimeoutWarningRef.current = false;
       console.log(`Realtime socket connected: ${socket.id}`);
     };
 
     const handleConnectError = (error: Error) => {
-      console.error('Realtime socket connect_error:', error.message);
+      if (error.message === 'timeout') {
+        if (!hasShownTimeoutWarningRef.current) {
+          hasShownTimeoutWarningRef.current = true;
+          console.warn(`Realtime socket timeout ke ${socketUrl || 'server websocket'}. Pastikan server realtime aktif, misalnya lewat 'npm run dev' atau 'npm run start:full'.`);
+        }
+        return;
+      }
+
+      console.warn('Realtime socket connect_error:', error.message);
     };
 
     const handleDisconnect = (reason: string) => {

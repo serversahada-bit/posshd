@@ -135,6 +135,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
 
   const isPesananActive = ['/buat_pesanan', '/buat_pesanan_cso', '/buat_pesanan_crm', '/buat_pesanan_resend', '/orders'].includes(pathname);
   const isDataPesananActive = pathname === '/olahan';
+  const isDataLengkapActive = pathname === '/data_lengkap_customer';
   const isGudangActive = ['/setting_gudang', '/stok_produk', '/stok_hadiah'].includes(pathname);
   const isPembayaranActive = ['/setting_payment', '/setting_no_payment'].includes(pathname);
 
@@ -218,7 +219,29 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
                     </div>
                 </div>
                 )}
-                {hasAccess('olahan') && <NavItem href="/data_lengkap_customer" icon={PackageOpen} label="Data Lengkap" active={pathname === '/data_lengkap_customer'} />} 
+                {hasAccess('olahan') && (
+                <div>
+                    <button
+                      className={`sidebar__toggle ${(isDataLengkapActive || openSubmenu === 'data-lengkap') ? 'sidebar__toggle--active' : ''}`}
+                      onClick={() => toggleSubmenu('data-lengkap')}
+                    >
+                        <span className="sidebar__label-wrap">
+                            <PackageOpen className="sidebar__icon" size={18} strokeWidth={1.9} />
+                            <span className="sidebar__link-text">Data Lengkap</span>
+                        </span>
+                        <ChevronDown className={`sidebar__chevron ${(isDataLengkapActive || openSubmenu === 'data-lengkap') ? 'sidebar__chevron--open' : ''}`} size={16} />
+                    </button>
+
+                    <div className={`sidebar__submenu ${(isDataLengkapActive || openSubmenu === 'data-lengkap') ? '' : 'sidebar__submenu--closed'}`}>
+                        <SubmenuItem href="/data_lengkap_customer" label="Semua Status" active={pathname === '/data_lengkap_customer' && !searchParams.has('status') && !searchParams.has('sort')} />
+                        <SubmenuItem href="/data_lengkap_customer?sort=created_at" label="Create Order" active={pathname === '/data_lengkap_customer' && searchParams.get('sort') === 'created_at'} />
+                        <SubmenuItem href="/data_lengkap_customer?sort=processing_at" label="Processing At" active={pathname === '/data_lengkap_customer' && searchParams.get('sort') === 'processing_at'} />
+                        <SubmenuItem href="/data_lengkap_customer?sort=last_update" label="Last Update" active={pathname === '/data_lengkap_customer' && searchParams.get('sort') === 'last_update'} />
+                        <SubmenuItem href="/data_lengkap_customer?status=problem" label="Problem" active={pathname === '/data_lengkap_customer' && searchParams.get('status') === 'problem'} count={problemCount} />
+                        <SubmenuItem href="/data_lengkap_customer?status=rts" label="Khusus Retur" active={pathname === '/data_lengkap_customer' && searchParams.get('status') === 'rts'} />
+                    </div>
+                </div>
+                )} 
                 </div>
             </div>
 
