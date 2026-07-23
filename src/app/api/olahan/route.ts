@@ -128,6 +128,8 @@ export async function GET(request: Request) {
             s.courier_service,
             s.tracking_number as resi,
             p.fat_proof_url as id_reff,
+            p.payment_status,
+            p.reject_reason,
             CASE
                 WHEN cu.role = 'admin' THEN NULL
                 ELSE COALESCE(NULLIF(cu.name, ''), NULLIF(cu.email, ''))
@@ -172,6 +174,8 @@ export async function GET(request: Request) {
             s.courier_service,
             s.tracking_number as resi,
             p.fat_proof_url as id_reff,
+            p.payment_status,
+            p.reject_reason,
             CASE
                 WHEN cu.role = 'admin' THEN NULL
                 ELSE COALESCE(NULLIF(cu.name, ''), NULLIF(cu.email, ''))
@@ -213,6 +217,8 @@ export async function GET(request: Request) {
             s.courier_service,
             s.tracking_number as resi,
             p.fat_proof_url as id_reff,
+            p.payment_status,
+            p.reject_reason,
             CASE
                 WHEN cu.role = 'admin' THEN NULL
                 ELSE COALESCE(NULLIF(cu.name, ''), NULLIF(cu.email, ''))

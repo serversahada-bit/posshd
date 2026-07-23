@@ -27,6 +27,8 @@ type OrderItem = {
   product_names: string | null;
   resi: string | null;
   id_reff: string | null;
+  payment_status: string | null;
+  reject_reason: string | null;
   courier_name: string | null;
   courier_service: string | null;
   creator_name: string | null;
@@ -621,7 +623,16 @@ export default function OlahanPage() {
                           problem: { label: 'Problem', className: 'bg-red-50 text-red-600 border-red-200' },
                         };
                         const currentStatus = statusMap[row.order_status] || { label: row.order_status, className: 'bg-slate-50 text-slate-600 border-slate-200' };
-                        return <span className={`px-2.5 py-1 rounded border text-xs font-bold ${currentStatus.className}`}>{currentStatus.label}</span>;
+                        return (
+                          <div className="flex flex-col gap-1 items-start">
+                            <span className={`px-2.5 py-1 rounded border text-xs font-bold ${currentStatus.className}`}>{currentStatus.label}</span>
+                            {row.payment_status === 'rejected' && row.reject_reason ? (
+                              <span className="text-[10px] text-red-500 font-medium break-words max-w-[150px] leading-tight mt-1">
+                                Alasan Ditolak: {row.reject_reason}
+                              </span>
+                            ) : null}
+                          </div>
+                        );
                       })()}
                     </td>
                     <td className="p-4 align-top text-right">
