@@ -108,7 +108,7 @@ export async function GET(request: Request) {
 
       if (rates.length > 0) {
         const couriers = Object.fromEntries(
-          courierDisplayNames.map((name) => [name, { price: 0, estimation: '', out_of_coverage: 0 }])
+          courierDisplayNames.map((name) => [name, { price: 0, estimation: '', out_of_coverage: '' }])
         );
 
         for (const row of rates) {
@@ -118,7 +118,7 @@ export async function GET(request: Request) {
           if (canonicalCourierKey && couriers[canonicalCourierKey]) {
             couriers[canonicalCourierKey].price = parsePriceInt(row.harga);
             couriers[canonicalCourierKey].estimation = row.estimasi || '';
-            couriers[canonicalCourierKey].out_of_coverage = parseInt(row.out_of_coverage || '0', 10) || 0;
+            couriers[canonicalCourierKey].out_of_coverage = row.out_of_coverage || '';
           }
         }
 

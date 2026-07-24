@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import prisma from '@/lib/db';
+import * as xlsx from 'xlsx';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,44 +56,12 @@ export async function GET(request: NextRequest) {
   }
 }
 
-const parseCsvLine = (line: string, delimiter: string) => {
-  const result: string[] = [];
-  let current = '';
-  let inQuotes = false;
-
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    const nextChar = line[index + 1];
-
-    if (char === '"') {
-      if (inQuotes && nextChar === '"') {
-        current += '"';
-        index += 1;
-      } else {
-        inQuotes = !inQuotes;
-      }
-      continue;
-    }
-
-    if (char === delimiter && !inQuotes) {
-      result.push(current.trim());
-      current = '';
-      continue;
-    }
-
-    current += char;
-  }
-
-  result.push(current.trim());
-  return result;
-};
-
 const normalizeOriginCode = (value: string) => {
   const cleanValue = value.trim();
-  const compactValue = cleanValue.replace(/s+/g, ' ');
+  const compactValue = cleanValue.replace(/\s+/g, ' ');
 
   if (/^madiun/i.test(compactValue) || compactValue === '39900') return 'Madiun (39900)';
-  if (/^bekasi/i.test(compactValue) || compactValue === '6573') return 'Bekasi (6573)';
+  if (/^bekasi/i.test(compactValue) || /^beka i/i.test(compactValue) || compactValue === '6573') return 'Bekasi (6573)';
   if (/^jakarta/i.test(compactValue) || compactValue === '17665') return 'Jakarta (17665)';
 
   return compactValue;
@@ -103,22 +72,23 @@ async function handleImport(formData: FormData) {
   const truncateTable = formData.get('truncate_table') === '1';
 
   if (!(file instanceof File)) {
-    throw new Error('File CSV gagal diunggah atau belum dipilih.');
+    throw new Error('File gagal diunggah atau belum dipilih.');
   }
 
-  if (!file.name.toLowerCase().endsWith('.csv')) {
-    throw new Error('Hanya file CSV yang diperbolehkan.');
+  const buffer = await file.arrayBuffer();
+  const workbook = xlsx.read(buffer, { type: 'buffer' });
+  const sheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[sheetName];
+  
+  // Convert to array of arrays
+  const jsonData = xlsx.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+  
+  if (jsonData.length <= 1) {
+    throw new Error('File tidak memiliki data untuk diimpor.');
   }
 
-  const content = await file.text();
-  const lines = content.split(/\r?\n/).filter((line) => line.trim() !== '');
-
-  if (lines.length <= 1) {
-    throw new Error('File CSV tidak memiliki data untuk diimpor.');
-  }
-
-  const delimiter = lines[0].includes(';') && !lines[0].includes(',') ? ';' : ',';
-  const rows = lines.slice(1);
+  // Skip header row
+  const rows = jsonData.slice(1);
   const importRows: Array<{
     kode_asal: string;
     kode_tujuan: string;
@@ -129,28 +99,41 @@ async function handleImport(formData: FormData) {
     out_of_coverage: string;
   }> = [];
 
-  rows.forEach((line) => {
-    const parts = parseCsvLine(line, delimiter);
-    if (parts.length >= 7) {
-      const kodeAsal = normalizeOriginCode(parts[1] || '');
-      importRows.push({
-        kode_asal: kodeAsal,
-        kode_tujuan: kodeAsal,
-        nama_tujuan: parts[2] || '',
-        kurir: (parts[3] || '').toUpperCase(),
-        harga: parts[4] || '',
-        estimasi: parts[5] || '',
-        out_of_coverage: parts[6] || '',
-      });
+  rows.forEach((parts) => {
+    // ID, Kode Asal, Nama Tujuan, Kurir, Harga, Estimasi, OOC
+    if (parts.length >= 4) {
+      const p1 = String(parts[1] || '').trim(); // Kode Asal
+      const p2 = String(parts[2] || '').trim(); // Nama Tujuan
+      const p3 = String(parts[3] || '').trim(); // Kurir
+      const p4 = String(parts[4] || '').trim(); // Harga
+      const p5 = parts.length > 5 ? String(parts[5] || '').trim() : ''; // Estimasi
+      const p6 = parts.length > 6 ? String(parts[6] || '').trim() : ''; // OOC
+
+      if (p2 && p3 && p4) {
+        const kodeAsal = normalizeOriginCode(p1);
+        importRows.push({
+          kode_asal: kodeAsal,
+          kode_tujuan: kodeAsal,
+          nama_tujuan: p2,
+          kurir: p3.toUpperCase(),
+          harga: p4,
+          estimasi: p5,
+          out_of_coverage: p6,
+        });
+      }
     }
   });
+
+  if (importRows.length === 0) {
+    throw new Error('Tidak ada baris valid yang ditemukan dalam file. Pastikan urutan kolom sesuai standar (ID, Kode Asal, Nama Tujuan, Kurir, Harga, Estimasi, OOC).');
+  }
 
   if (truncateTable) {
     await prisma.tarif_pengiriman.deleteMany();
   }
 
-  for (let index = 0; index < importRows.length; index += IMPORT_BATCH_SIZE) {
-    const batch = importRows.slice(index, index + IMPORT_BATCH_SIZE);
+  for (let index = 0; index < importRows.length; index += 250) {
+    const batch = importRows.slice(index, index + 250);
     await prisma.tarif_pengiriman.createMany({
       data: batch,
     });
@@ -177,6 +160,12 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const action = String(body?.action || '');
+
+    
+    if (action === 'truncate') {
+      await prisma.tarif_pengiriman.deleteMany();
+      return NextResponse.json({ success: true, message: 'Semua data tarif ongkir berhasil dikosongkan.' });
+    }
 
     if (action === 'create') {
       const kode_asal = String(body?.kode_asal || '').trim();

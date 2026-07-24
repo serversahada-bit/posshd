@@ -330,15 +330,20 @@ export default function BuatPesananPage() {
                 warehouseId: whIdToUse,
                 price: od.rates[c].price * multi,
                 estimation: od.rates[c].estimation,
-                outOfStock: !isAvailable
+                outOfStock: !isAvailable,
+                outOfCoverage: od.rates[c].out_of_coverage
               });
             }
           }
         }
 
         allOpts.sort((a, b) => {
-          if (a.outOfStock === b.outOfStock) return a.price - b.price;
-          return a.outOfStock ? 1 : -1;
+          if (a.outOfStock !== b.outOfStock) return a.outOfStock ? 1 : -1;
+          const aOoc = a.outOfCoverage?.trim().toUpperCase() || '';
+          const bOoc = b.outOfCoverage?.trim().toUpperCase() || '';
+          if (aOoc === 'ALL' && bOoc !== 'ALL') return -1;
+          if (aOoc !== 'ALL' && bOoc === 'ALL') return 1;
+          return a.price - b.price;
         });
 
         setAvailableCouriers(allOpts);
@@ -365,6 +370,18 @@ export default function BuatPesananPage() {
       fetchShippingRates();
     }
   }, [subdistrict, totals.totalWeight]);
+
+  useEffect(() => {
+    const selectedCourierOpt = availableCouriers.find(c => c.warehouseId === warehouseId && c.courierName === courierName);
+    const currentOoc = selectedCourierOpt?.outOfCoverage?.trim().toUpperCase() || '';
+    if (currentOoc === 'TF') {
+      if (paymentMethod !== 'bank_transfer') setPaymentMethod('bank_transfer');
+    } else if (currentOoc !== 'ALL' && currentOoc !== 'TF') {
+      if (paymentMethod !== '') setPaymentMethod('');
+    } else if (currentOoc === 'ALL') {
+      if (!paymentMethod || paymentMethod === '') setPaymentMethod('bank_transfer');
+    }
+  }, [warehouseId, courierName, availableCouriers]);
 
   const handleAddToCart = (item: any, isGift: boolean) => {
     setCart(prev => {
@@ -417,6 +434,10 @@ export default function BuatPesananPage() {
 
     if (orderCode && orderCode.length !== 13) {
       return Swal.fire('Error', 'Kode Scalev harus tepat 13 karakter', 'error');
+    }
+
+    if (!paymentMethod) {
+      return Swal.fire('Error', 'Metode pembayaran tidak tersedia atau belum dipilih. Periksa status OOC dari Kurir.', 'error');
     }
 
     if (paymentMethod === 'bank_transfer' && !paymentProofFile) {
@@ -717,59 +738,6 @@ export default function BuatPesananPage() {
               )}
             </div>
 
-            {/* Pengiriman & Kurir */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                <h2 className="font-bold text-slate-800">Pengiriman & Logistik</h2>
-                <button type="button" onClick={() => setShowCourierModal(true)} disabled={availableCouriers.length === 0} className="px-4 py-1.5 bg-white border border-slate-300 rounded-lg text-sm font-medium hover:bg-slate-50 text-slate-700 disabled:opacity-50">Ubah Kurir</button>
-              </div>
-              <div className="p-5">
-                {warehouseId ? (
-                  <div className="flex items-start gap-4 p-4 border border-violet-100 bg-violet-50/50 rounded-xl">
-                    <div className="p-2 bg-violet-100 text-purple-400 rounded-lg"><MapPin className="w-6 h-6" /></div>
-                    <div className="flex-1">
-                      <p className="font-bold text-slate-800">{courierName} <span className="text-purple-400">- {bestOriginStr.toUpperCase()}</span></p>
-                      <p className="text-sm text-slate-600 mt-1">Gudang Asal: <strong>{selectedWarehouseData?.warehouse_name}</strong></p>
-                      <p className="text-sm font-bold text-purple-500 mt-2">Biaya Ongkir: Rp {formatCurrency(shippingCost)}</p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="p-4 text-center text-amber-600 bg-amber-50 rounded-xl border border-amber-100 text-sm font-medium">
-                    {cart.length === 0 ? "Tambahkan produk terlebih dahulu" : "Pilih kecamatan untuk melihat opsi ongkir"}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Notes & Extra */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="p-5 border-b border-slate-100 bg-slate-50">
-                <h2 className="font-bold text-slate-800">Data Tambahan</h2>
-              </div>
-              <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Usia Pelanggan</label>
-                  <input value={age} onChange={e => setAge(e.target.value)} type="number" className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 outline-none text-sm" placeholder="Contoh: 45" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Promo</label>
-                  <select value={promoId} onChange={e => setPromoId(e.target.value)} className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 outline-none text-sm">
-                    <option value="">Pilih Promo...</option>
-                    {data?.promos.map(p => <option key={p.id} value={p.id}>{p.promo_name}</option>)}
-                  </select>
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Keluhan Pelanggan</label>
-                  <textarea value={complaint} onChange={e => setComplaint(e.target.value)} rows={2} className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 outline-none text-sm" placeholder="Tulis riwayat sakit..."></textarea>
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Catatan Internal</label>
-                  <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 outline-none text-sm" placeholder="Catatan khusus..."></textarea>
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* KOLOM PEMBAYARAN & RINGKASAN */}
           <div className="space-y-6">
 
@@ -783,9 +751,28 @@ export default function BuatPesananPage() {
                 <div>
                   <label className="block text-xs font-bold text-slate-600 mb-2">Metode Pembayaran</label>
                   <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 outline-none text-sm font-medium">
-                    <option value="bank_transfer">Bank Transfer (Manual)</option>
-                    <option value="cod">Cash on Delivery (COD)</option>
-                    <option value="free">Free / Tanpa Pembayaran</option>
+                    {(() => {
+                      const selectedCourierOpt = availableCouriers.find(c => c.warehouseId === warehouseId && c.courierName === courierName);
+                      const currentOoc = selectedCourierOpt?.outOfCoverage?.trim().toUpperCase() || '';
+                      
+                      if (currentOoc === 'ALL') {
+                        return (
+                          <>
+                            <option value="bank_transfer">Bank Transfer (Manual)</option>
+                            <option value="cod">Cash on Delivery (COD)</option>
+                            <option value="free">Free / Tanpa Pembayaran</option>
+                          </>
+                        );
+                      } else if (currentOoc === 'TF') {
+                        return (
+                          <option value="bank_transfer">Bank Transfer (Manual)</option>
+                        );
+                      } else {
+                        return (
+                          <option value="" disabled>Metode Pembayaran Tidak Tersedia (OOC: Kosong / Lainnya)</option>
+                        );
+                      }
+                    })()}
                   </select>
                 </div>
 
@@ -885,6 +872,66 @@ export default function BuatPesananPage() {
             </div>
 
           </div>
+            {/* Pengiriman & Kurir */}
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                <h2 className="font-bold text-slate-800">Pengiriman & Logistik</h2>
+                <button type="button" onClick={() => setShowCourierModal(true)} disabled={availableCouriers.length === 0} className="px-4 py-1.5 bg-white border border-slate-300 rounded-lg text-sm font-medium hover:bg-slate-50 text-slate-700 disabled:opacity-50">Ubah Kurir</button>
+              </div>
+              <div className="p-5">
+                {warehouseId ? (
+                  <div className="flex items-start gap-4 p-4 border border-violet-100 bg-violet-50/50 rounded-xl">
+                    <div className="p-2 bg-violet-100 text-purple-400 rounded-lg"><MapPin className="w-6 h-6" /></div>
+                    <div className="flex-1">
+                      <p className="font-bold text-slate-800 flex items-center gap-2">
+                        {courierName} <span className="text-purple-400">- {bestOriginStr.toUpperCase()}</span>
+                        {(() => {
+                          const selectedOpt = availableCouriers.find(c => c.warehouseId === warehouseId && c.courierName === courierName);
+                          const ooc = selectedOpt?.outOfCoverage?.trim().toUpperCase();
+                          return <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${ooc === 'ALL' ? 'bg-emerald-100 text-emerald-700' : ooc === 'TF' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>Ketersediaan Pembayaran : {selectedOpt?.outOfCoverage || 'KOSONG'}</span>
+                        })()}
+                      </p>
+                      <p className="text-sm text-slate-600 mt-1">Gudang Asal: <strong>{selectedWarehouseData?.warehouse_name}</strong></p>
+                      <p className="text-sm font-bold text-purple-500 mt-2">Biaya Ongkir: Rp {formatCurrency(shippingCost)}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 text-center text-amber-600 bg-amber-50 rounded-xl border border-amber-100 text-sm font-medium">
+                    {cart.length === 0 ? "Tambahkan produk terlebih dahulu" : "Pilih kecamatan untuk melihat opsi ongkir"}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Notes & Extra */}
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="p-5 border-b border-slate-100 bg-slate-50">
+                <h2 className="font-bold text-slate-800">Data Tambahan</h2>
+              </div>
+              <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Usia Pelanggan</label>
+                  <input value={age} onChange={e => setAge(e.target.value)} type="number" className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 outline-none text-sm" placeholder="Contoh: 45" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Promo</label>
+                  <select value={promoId} onChange={e => setPromoId(e.target.value)} className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 outline-none text-sm">
+                    <option value="">Pilih Promo...</option>
+                    {data?.promos.map(p => <option key={p.id} value={p.id}>{p.promo_name}</option>)}
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Keluhan Pelanggan</label>
+                  <textarea value={complaint} onChange={e => setComplaint(e.target.value)} rows={2} className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 outline-none text-sm" placeholder="Tulis riwayat sakit..."></textarea>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Catatan Internal</label>
+                  <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 outline-none text-sm" placeholder="Catatan khusus..."></textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
       </form>
 
@@ -965,7 +1012,10 @@ export default function BuatPesananPage() {
                     setShowCourierModal(false);
                   }} className="mt-1 text-purple-400 focus:ring-purple-300" />
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-slate-800 text-sm uppercase">{c.courierName} <span className="text-purple-400 font-semibold ml-1">- {c.origin}</span></p>
+                    <p className="font-bold text-slate-800 text-sm uppercase">
+                      {c.courierName} <span className="text-purple-400 font-semibold ml-1">- {c.origin}</span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ml-2 ${c.outOfCoverage?.trim().toUpperCase() === 'ALL' ? 'bg-emerald-100 text-emerald-700' : c.outOfCoverage?.trim().toUpperCase() === 'TF' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>Ketersediaan Pembayaran : {c.outOfCoverage || 'KOSONG'}</span>
+                    </p>
                     <p className="text-xs text-slate-500 mt-1">Estimasi: {c.estimation || 'Reguler'}</p>
                     <p className="font-bold text-purple-500 mt-2">Rp {formatCurrency(c.price)}</p>
                     {c.outOfStock && <p className="text-[10px] text-red-500 font-bold mt-1">Stok Habis di Gudang Ini</p>}
