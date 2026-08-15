@@ -1,0 +1,414 @@
+import { NextResponse } from 'next/server';
+import prisma from '@/lib/db';
+import { Prisma } from '@prisma/client';
+import { join } from 'path';
+import crypto from 'crypto';
+import { emitEvent } from '@/lib/socket-server';
+import { cookies } from 'next/headers';
+import { hasColumn, syncOrderTimestampColumns } from '@/lib/orderTimestamps';
+import { logOrderCreated } from '@/lib/orderStatusLog';
+import { resolveOrderItem } from '@/lib/orderItems';
+import { upsertCustomerAddressSnapshot } from '@/lib/customerAddress';
+import { saveUploadBuffer } from '@/lib/uploadStorage';
+
+export const dynamic = 'force-dynamic';
+
+type NoPaymentMethodRow = {
+  method_name: string;
+};
+
+const pad2 = (value: number) => String(value).padStart(2, '0');
+
+function getPaymentCode(paymentMethod: string) {
+  switch (paymentMethod) {
+    case 'cod':
+      return 'C';
+    case 'bank_transfer':
+      return 'B';
+    case 'ewallet':
+      return 'E';
+    case 'free':
+      return 'F';
+    default:
+      return 'X';
+  }
+}
+
+async function generateOrderCode(tx: Prisma.TransactionClient, payload: { warehouseId: number; courierName: string; paymentMethod: string }) {
+  const now = new Date();
+  const datePart = `${pad2(now.getFullYear() % 100)}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}`;
+
+  const warehouse = Number.isFinite(payload.warehouseId)
+    ? await tx.warehouses.findUnique({
+        where: { id: payload.warehouseId },
+        select: { code: true, warehouse_name: true },
+      })
+    : null;
+
+  const courier = payload.courierName
+    ? await tx.couriers.findFirst({
+        where: { courier_name: { equals: payload.courierName } },
+        select: { code: true, courier_name: true },
+      })
+    : null;
+
+  const warehouseCode = (warehouse?.code || warehouse?.warehouse_name || 'X').trim().charAt(0).toUpperCase() || 'X';
+  const paymentCode = getPaymentCode(payload.paymentMethod);
+  const courierCode = (courier?.code || courier?.courier_name || payload.courierName || 'X').trim().charAt(0).toUpperCase() || 'X';
+  const prefix = `${datePart}C${warehouseCode}${paymentCode}${courierCode}`;
+
+  for (let sequence = 1; sequence <= 99; sequence += 1) {
+    const candidate = `${prefix}A${pad2(sequence)}`;
+    const exists = await tx.orders_cso.findUnique({
+      where: { order_code: candidate },
+      select: { id: true },
+    });
+
+    if (!exists) {
+      return candidate;
+    }
+  }
+
+  throw new Error('Gagal membuat unique code CSO. Batas urutan harian sudah penuh.');
+}
+
+export async function POST(request: Request) {
+  try {
+    const cookieStore = await cookies();
+    const formData = await request.formData();
+    const createdByUserId = Number(cookieStore.get('sahada_user_id')?.value || formData.get('user_id')) || null;
+    const ipAddress = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || null;
+
+    // Parse Customer Data
+    const customerIdStr = formData.get('customer_id') as string;
+    const customerName = formData.get('customer_name') as string;
+    const whatsapp = formData.get('whatsapp_number') as string;
+    const email = formData.get('email') as string;
+    const address = formData.get('address') as string;
+    const subdistrict = formData.get('subdistrict') as string;
+    const age = parseInt(formData.get('age') as string, 10) || null;
+    const complaint = formData.get('complaint') as string;
+
+    let customerId = 0;
+    if (whatsapp) {
+      const existing = await prisma.customers.findFirst({
+        where: { whatsapp_number: whatsapp },
+        orderBy: { id: 'desc' }
+      });
+      if (existing) {
+        customerId = existing.id;
+      }
+    }
+
+    // If no customer ID but name is provided, create a new customer
+    if (!customerId && customerName) {
+      const parts = subdistrict ? subdistrict.split(',') : [];
+      const province = parts[0]?.trim() || null;
+      const city = parts[1]?.trim() || null;
+      const district = parts[2]?.trim() || null;
+
+      const newCust = await prisma.customers.create({
+        data: {
+          name: customerName,
+          whatsapp_number: whatsapp,
+          email: email,
+          address: address,
+          subdistrict: subdistrict,
+          province: province,
+          city: city,
+          age: age,
+          complaint: complaint,
+          status: 'active',
+        },
+      });
+      customerId = newCust.id;
+
+    }
+
+    if (!customerId) {
+      return NextResponse.json({ status: 'error', message: 'Customer ID or Name is required' }, { status: 400 });
+    }
+
+    // Parse Order Totals & Settings
+    const totalProductPrice = parseInt(formData.get('total_product_price') as string, 10) || 0;
+    const productDiscount = parseInt(formData.get('product_discount') as string, 10) || 0;
+    const shippingCost = parseInt(formData.get('shipping_cost') as string, 10) || 0;
+    const manualFeeCod = parseInt(formData.get('manual_fee_cod') as string, 10) || 0;
+    const otherFee = parseInt(formData.get('other_fee') as string, 10) || 0;
+    const totalPayment = parseInt(formData.get('total_payment') as string, 10) || 0;
+
+    const warehouseId = parseInt(formData.get('warehouse_id') as string, 10);
+    const courierName = formData.get('courier_name') as string;
+    const paymentMethod = formData.get('payment_method') as string;
+    const noPaymentMethodId = parseInt(formData.get('no_payment_method_id') as string, 10) || 0;
+    const notes = formData.get('notes') as string;
+    const advertiserName = formData.get('advertiser_name') as string;
+    const adSource = formData.get('ad_source') as string;
+    const roCount = parseInt(formData.get('ro_count') as string, 10) || 0;
+    const isRo = roCount > 0 ? true : false;
+    const scalevOrderId = formData.get('order_code') as string || null;
+    const promoId = formData.get('promo_id') as string;
+
+    // Handle File Upload (Payment Proof)
+    let paymentProofUrl = null;
+    const file = formData.get('payment_proof') as File | null;
+    if (file && file.size > 0) {
+      const bytes = await file.arrayBuffer();
+      const buffer = Buffer.from(bytes);
+      const ext = file.name.split('.').pop() || 'jpg';
+      const filename = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
+
+      const stored = await saveUploadBuffer(['payments'], filename, buffer);
+      paymentProofUrl = stored.url;
+    }
+
+    if (paymentMethod === 'bank_transfer' && !paymentProofUrl) {
+      throw new Error('Bukti transfer wajib diupload untuk Bank Transfer (Manual)');
+    }
+
+    if (paymentMethod === 'free' && !paymentProofUrl) {
+      throw new Error('Bukti approval wajib diupload untuk Free / Tanpa Pembayaran');
+    }
+
+    // Parse Items (Products)
+    const pIds = formData.getAll('item_product_id[]') as string[];
+    const isGifts = formData.getAll('item_is_gift[]') as string[];
+    const isBundles = formData.getAll('item_is_bundle[]') as string[];
+    const pPrices = formData.getAll('item_price[]') as string[];
+    const pDiscs = formData.getAll('item_discount[]') as string[];
+    const pQtys = formData.getAll('item_qty[]') as string[];
+
+    const [ordersCsoHasAdvertiser, ordersCsoHasAdSource] = await Promise.all([
+      hasColumn(prisma, 'orders_cso', 'advertiser_name'),
+      hasColumn(prisma, 'orders_cso', 'ad_source'),
+    ]);
+
+    const orderResult = await prisma.$transaction(async (tx) => {
+      const orderCode = await generateOrderCode(tx, { warehouseId, courierName, paymentMethod });
+      const eventAt = new Date();
+      const regionParts = subdistrict ? subdistrict.split(',').map((part) => part.trim()) : [];
+      const addressSnapshot = await upsertCustomerAddressSnapshot(tx, {
+        customerId,
+        receiverName: customerName,
+        whatsappNumber: whatsapp,
+        address,
+        district: regionParts[2] || null,
+        city: regionParts[1] || null,
+        province: regionParts[0] || null,
+      });
+
+      // 1. Create Order
+      const order = await tx.orders_cso.create({
+        data: {
+          order_code: orderCode,
+          scalev_order_id: scalevOrderId,
+          customer_id: customerId,
+          customer_address_id: addressSnapshot.id,
+          created_by_user_id: createdByUserId,
+          order_type: 'normal',
+          order_source: 'CSO',
+          order_status: 'pending',
+          total_product_price: totalProductPrice,
+          product_discount: productDiscount,
+          shipping_cost: shippingCost,
+          shipping_discount: 0,
+          other_fee: manualFeeCod + otherFee,
+          promo_id: promoId,
+          total_payment: totalPayment,
+          notes: notes,
+          is_ro: isRo,
+          ro_count: roCount,
+          warehouse_id: warehouseId,
+          updated_at: eventAt,
+        }
+      });
+
+      await syncOrderTimestampColumns(tx, 'orders_cso', order.id, 'pending', eventAt);
+      await logOrderCreated(tx, { userId: createdByUserId, orderCode: order.order_code, source: 'CSO_AUTO', toStatus: 'pending', ipAddress });
+
+      if ((ordersCsoHasAdvertiser && advertiserName) || (ordersCsoHasAdSource && adSource)) {
+        const advUpdates: string[] = [];
+        const advParams: Array<string | number | null> = [];
+
+        if (ordersCsoHasAdvertiser) {
+          advUpdates.push('advertiser_name = ?');
+          advParams.push(advertiserName || null);
+        }
+
+        if (ordersCsoHasAdSource) {
+          advUpdates.push('ad_source = ?');
+          advParams.push(adSource || null);
+        }
+
+        advParams.push(order.id);
+
+        await tx.$executeRawUnsafe(
+          `UPDATE orders_cso SET ${advUpdates.join(', ')} WHERE id = ?`,
+          ...advParams
+        );
+      }
+
+      // 2. Create Items & Deduct Stock
+      let totalWeightGrams = 0;
+      for (let i = 0; i < pIds.length; i++) {
+        const pId = parseInt(pIds[i], 10);
+        const isGift = isGifts[i] === '1';
+        const isBundle = isBundles[i] === '1';
+        const price = parseInt(pPrices[i], 10) || 0;
+        const discount = parseInt(pDiscs[i], 10) || 0;
+        const qty = parseInt(pQtys[i], 10) || 1;
+        const subtotal = (price - discount) * qty;
+        const resolvedItem = await resolveOrderItem(tx, { itemId: pId, isGift, isBundle });
+
+        let name = '';
+        if (resolvedItem.kind === 'gift') {
+          name = resolvedItem.name;
+          totalWeightGrams += resolvedItem.weightGram * qty;
+          if (warehouseId) {
+            await tx.warehouse_gift_stock.updateMany({
+              where: { gift_id: pId, warehouse_id: warehouseId },
+              data: { stock: { decrement: qty } },
+            });
+          }
+        } else if (resolvedItem.kind === 'bundle') {
+          name = resolvedItem.name;
+          const bundleTotalQty = resolvedItem.components.reduce((sum, item) => sum + item.qtyPerBundle, 0);
+          const bundlesBought = bundleTotalQty > 0 ? (qty / bundleTotalQty) : 0;
+
+          for (const item of resolvedItem.components) {
+            const deductQty = item.qtyPerBundle * bundlesBought;
+            totalWeightGrams += item.weightGram * deductQty;
+            if (warehouseId) {
+              await tx.warehouse_stock.updateMany({
+                where: { product_id: item.productId, warehouse_id: warehouseId },
+                data: { stock: { decrement: deductQty } },
+              });
+            }
+
+            await tx.order_items_cso.create({
+              data: {
+                order_id: order.id,
+                product_id: item.productId,
+                product_name: item.productName,
+                qty: deductQty,
+                price: price,
+                discount: discount,
+                subtotal: (price - discount) * deductQty,
+                is_gift: false,
+                is_bundle: true,
+              }
+            });
+          }
+          continue;
+        } else {
+          name = resolvedItem.name;
+          totalWeightGrams += resolvedItem.weightGram * qty;
+          if (warehouseId) {
+            await tx.warehouse_stock.updateMany({
+              where: { product_id: pId, warehouse_id: warehouseId },
+              data: { stock: { decrement: qty } },
+            });
+          }
+        }
+
+        await tx.order_items_cso.create({
+          data: {
+            order_id: order.id,
+            product_id: (isBundle || isGift) ? null : pId,
+            product_name: name,
+            qty: qty,
+            price: price,
+            discount: discount,
+            subtotal: subtotal,
+            is_gift: isGift,
+            is_bundle: isBundle,
+          }
+        });
+      }
+
+      // 3. Create Shipment
+      if (courierName) {
+        await tx.shipments_cso.create({
+          data: {
+            order_id: order.id,
+            warehouse_id: warehouseId,
+            courier_name: courierName,
+            courier_service: 'Reguler',
+            shipping_cost: shippingCost,
+            total_weight_gram: totalWeightGrams,
+            shipment_status: 'pending',
+          }
+        });
+      }
+
+      // 4. Create Payment
+      let finalPaymentMethod: 'bank_transfer' | 'cod' | 'ewallet' | 'free' = 'bank_transfer';
+      if (paymentMethod === 'cod') finalPaymentMethod = 'cod';
+      if (paymentMethod === 'free') finalPaymentMethod = 'free';
+
+      let bankName = null;
+      let accountName = null;
+      let accountNo = null;
+
+      if (paymentMethod === 'bank_transfer') {
+        const accId = parseInt(formData.get('payment_account_id') as string, 10);
+        if (accId) {
+          const acc = await tx.payment_accounts.findUnique({ where: { id: accId } });
+          if (acc) {
+            bankName = acc.bank_name;
+            accountName = acc.account_name;
+            accountNo = acc.account_number;
+          }
+        }
+      } else if (paymentMethod === 'free' && noPaymentMethodId) {
+        const methods = await tx.$queryRawUnsafe<NoPaymentMethodRow[]>(
+          'SELECT method_name FROM no_payment_methods WHERE id = ? LIMIT 1',
+          noPaymentMethodId,
+        );
+        const method = methods[0];
+        if (method) {
+          bankName = method.method_name;
+          accountName = 'No Payment';
+          accountNo = '-';
+        }
+      }
+
+      const paymentStatus =
+        paymentMethod === 'cod'
+          ? 'unpaid'
+          : paymentMethod === 'bank_transfer'
+            ? 'waiting_confirmation'
+            : (paymentProofUrl ? 'waiting_confirmation' : 'unpaid');
+
+      await tx.payments_cso.create({
+        data: {
+          order_id: order.id,
+          payment_method: finalPaymentMethod,
+          bank_name: bankName,
+          account_name: accountName,
+          account_number: accountNo,
+          payment_proof_url: paymentProofUrl,
+          payment_status: paymentStatus,
+        }
+      });
+
+      return order;
+    });
+
+    await emitEvent('NEW_ORDER');
+    await emitEvent('REFRESH_OLAHAN');
+
+    return NextResponse.json({
+      status: 'success',
+      message: 'Pesanan berhasil dibuat',
+      order_code: orderResult.order_code,
+    });
+
+  } catch (error: unknown) {
+    console.error('Error creating order:', error);
+    return NextResponse.json(
+      { status: 'error', message: error instanceof Error ? error.message : 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
