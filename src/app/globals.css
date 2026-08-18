@@ -361,9 +361,18 @@ textarea {
   object-fit: cover;
 }
 
+.sidebar__user-link {
+  display: contents;
+}
+
+.sidebar__user-link .sidebar__avatar {
+  cursor: pointer;
+}
+
 .sidebar__user-body {
   flex: 1;
   min-width: 0;
+  cursor: pointer;
 }
 
 .sidebar__user-name {

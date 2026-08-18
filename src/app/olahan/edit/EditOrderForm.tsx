@@ -112,9 +112,6 @@ export default function EditOrderForm() {
         const order = loaded.order;
         const payment = loaded.payment || {};
         const shipment = loaded.shipment || {};
-        const additionalShippingCost = number(order.additional_shipping_cost);
-        const otherFee = number(order.other_fee);
-        const fallbackManualFeeCod = payment.payment_method === 'cod' && additionalShippingCost === 0 ? otherFee : 0;
         const selectedAccount = loaded.paymentAccounts?.find((item: any) => item.account_number === payment.account_number);
         const selectedNoPay = loaded.noPaymentMethods?.find((item: any) => item.method_name === payment.bank_name);
         const courier = order.courier_id || loaded.couriers?.find((item: any) => String(item.courier_name).toUpperCase() === String(shipment.courier_name || order.courier_name || '').toUpperCase())?.id || '';
@@ -170,8 +167,8 @@ export default function EditOrderForm() {
           courier_id: courier,
           shipping_cost: number(order.shipping_cost || shipment.shipping_cost),
           product_discount: number(order.product_discount),
-          manual_fee_cod: additionalShippingCost || fallbackManualFeeCod,
-          other_fee: additionalShippingCost === 0 && fallbackManualFeeCod > 0 ? 0 : otherFee,
+          manual_fee_cod: number(order.other_fee),
+          other_fee: number(order.additional_shipping_cost),
           shipping_discount: number(order.shipping_discount),
           payment_method: payment.payment_method || 'cod',
           payment_status: payment.payment_status || 'pending',
@@ -521,12 +518,22 @@ export default function EditOrderForm() {
   const getLogLabel = (log: EditLog) => {
     if (log.action === 'Update Status Pesanan') return 'Status';
     if (log.action === 'Create Pesanan') return 'Create';
+    if (log.action === 'Approve FAT') return 'Approve';
+    if (log.action === 'Reject FAT') return 'Reject';
     return 'Edit';
   };
 
   return (
     <div className="w-full px-4 py-6 md:px-8 lg:px-12">
-      <form onSubmit={submit} className="space-y-6">
+      <form
+        onSubmit={submit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && (event.target as HTMLElement).tagName !== 'TEXTAREA') {
+            event.preventDefault();
+          }
+        }}
+        className="space-y-6"
+      >
         <div className="mb-6">
           <div>
             <button
@@ -981,7 +988,7 @@ export default function EditOrderForm() {
                         <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{getLogLabel(log)}</span>
                       </div>
                       <p className="mt-1 text-xs text-slate-500">{formatDateTime(log.created_at)}</p>
-                      {log.details ? <p className="mt-1 text-xs text-slate-600">{log.details}</p> : null}
+                      {log.details ? <p className="mt-1 whitespace-pre-line text-xs text-slate-600">{log.details}</p> : null}
                     </div>
                   ))}
                 </div>

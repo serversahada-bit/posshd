@@ -239,6 +239,11 @@ export default function ValidasiPembayaranPage() {
                       {row.payment_status === 'rejected' ? (
                         <div className="flex flex-col gap-1 items-start">
                           <span className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-red-50 text-red-600 border-red-200">Ditolak</span>
+                          {row.validated_by_name && (
+                            <span className="text-[10px] text-slate-500 font-medium">
+                              Oleh: {row.validated_by_name}
+                            </span>
+                          )}
                           {row.reject_reason && (
                             <span className="text-[10px] text-red-500 font-medium break-words max-w-[150px] leading-tight">
                               Alasan: {row.reject_reason}

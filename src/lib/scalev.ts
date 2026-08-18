@@ -37,18 +37,25 @@ export function getScalevErrorMessage(payload: unknown, fallback: string) {
 
   const error = 'error' in payload && typeof payload.error === 'string' ? payload.error : null;
   const message = 'message' in payload && typeof payload.message === 'string' ? payload.message : null;
+  const detail = 'detail' in payload && typeof payload.detail === 'string' ? payload.detail : null;
   const raw = 'raw' in payload && typeof payload.raw === 'string' ? payload.raw : null;
-  const baseErrors =
-    'errors' in payload &&
-    payload.errors &&
-    typeof payload.errors === 'object' &&
-    'base' in payload.errors &&
-    Array.isArray(payload.errors.base)
-      ? payload.errors.base.filter((item): item is string => typeof item === 'string')
-      : [];
-  const firstBaseError = baseErrors[0] || null;
 
-  return error || message || firstBaseError || raw || fallback;
+  // Validasi Scalev bisa balik dalam bentuk { errors: { base: [...] } } ATAU { errors: { <field>: [...] } }
+  // (mis. { errors: { product_discount: ["..."] } }) — kumpulkan semua pesan string di objek errors,
+  // bukan cuma key "base", supaya error yang formatnya beda-beda tetap tertangkap.
+  const errorsFlat: string[] = [];
+  if ('errors' in payload && payload.errors && typeof payload.errors === 'object') {
+    for (const value of Object.values(payload.errors as Record<string, unknown>)) {
+      if (Array.isArray(value)) {
+        errorsFlat.push(...value.filter((item): item is string => typeof item === 'string'));
+      } else if (typeof value === 'string') {
+        errorsFlat.push(value);
+      }
+    }
+  }
+  const flatErrorMessage = errorsFlat.length > 0 ? errorsFlat.join('; ') : null;
+
+  return error || message || flatErrorMessage || detail || raw || fallback;
 }
 
 export async function changeScalevOrderStatus(params: {
@@ -75,7 +82,7 @@ export async function changeScalevOrderStatus(params: {
     ok: response.ok,
     statusCode: response.status,
     data,
-    message: getScalevErrorMessage(data, `Gagal mengubah status di Scalev (HTTP ${response.status})`),
+    message: getScalevErrorMessage(data, `Gagal mengubah status di Scalev (HTTP ${response.status}): ${JSON.stringify(data).slice(0, 500)}`),
   };
 }
 
@@ -134,11 +141,16 @@ export async function patchScalevOrder(params: {
 
   const data = await parseScalevResponse(response);
 
+  // Fallback-nya sengaja menyertakan isi respons mentah (dipotong) kalau getScalevErrorMessage tidak
+  // menemukan field pesan yang dikenal — supaya error tetap kelihatan isinya, bukan cuma "HTTP 400"
+  // tanpa keterangan (kejadian sebelumnya: Scalev balas format error yang belum tertangani).
+  const fallbackMessage = `Gagal memperbarui data order di Scalev (HTTP ${response.status}): ${JSON.stringify(data).slice(0, 500)}`;
+
   return {
     ok: response.ok,
     statusCode: response.status,
     data,
-    message: getScalevErrorMessage(data, `Gagal memperbarui data order di Scalev (HTTP ${response.status})`),
+    message: getScalevErrorMessage(data, fallbackMessage),
   };
 }
 
@@ -235,7 +247,59 @@ export type SyncPosOrderToScalevParams = {
   customerName?: string | null;
   customerPhone?: string | null;
   paymentMethod?: string | null;
+  shippingCost?: number | null;
+  shippingDiscount?: number | null;
+  productDiscount?: number | null;
+  otherIncome?: number | null;
+  expectedTotalPayment?: number | null;
 };
+
+type ScalevOrderSyncSnapshot = {
+  status: string | null;
+  shippingCost: number | null;
+  grossRevenue: number | null;
+};
+
+async function getScalevOrderSyncSnapshot(params: {
+  apiKey: string;
+  baseUrl: string;
+  orderId: string;
+}): Promise<{ ok: boolean; snapshot: ScalevOrderSyncSnapshot | null; message: string }> {
+  const url = new URL(`${params.baseUrl}/orders`);
+  url.searchParams.set('order_id', params.orderId);
+  url.searchParams.set('columns', 'order_id,status,shipping_cost,gross_revenue');
+  url.searchParams.set('page_size', '1');
+
+  const response = await fetch(url.toString(), { headers: { Authorization: `Bearer ${params.apiKey}` } });
+  const data = await parseScalevResponse(response);
+
+  if (!response.ok) {
+    return { ok: false, snapshot: null, message: getScalevErrorMessage(data, `Gagal memverifikasi order Scalev (HTTP ${response.status})`) };
+  }
+
+  const rows = data && typeof data === 'object' && 'data' in data && Array.isArray(data.data) ? data.data : [];
+  const row = rows[0] as Record<string, unknown> | undefined;
+
+  if (!row) {
+    return { ok: true, snapshot: null, message: 'Order tidak ditemukan saat verifikasi.' };
+  }
+
+  const toNumber = (value: unknown): number | null => {
+    if (value === null || value === undefined || value === '') return null;
+    const num = Number(value);
+    return Number.isNaN(num) ? null : num;
+  };
+
+  return {
+    ok: true,
+    snapshot: {
+      status: typeof row.status === 'string' ? row.status : null,
+      shippingCost: toNumber(row.shipping_cost),
+      grossRevenue: toNumber(row.gross_revenue),
+    },
+    message: 'ok',
+  };
+}
 
 export type SyncPosOrderToScalevResult = {
   ok: boolean;
@@ -259,6 +323,23 @@ export async function syncPosOrderToScalev(params: SyncPosOrderToScalevParams): 
   const warehouseUniqueId = getWarehouseUniqueId(params.warehouseCode);
   if (warehouseUniqueId) {
     patchPayload.warehouse_unique_id = warehouseUniqueId;
+  }
+
+  // Biaya ongkir/fee lain yang dihitung di POS tidak otomatis terbawa ke Scalev — order di Scalev
+  // cuma tahu harga produk, jadi Total Payment-nya salah kalau nilai-nilai ini tidak dikirim.
+  // CATATAN: product_discount SENGAJA tidak dikirim di sini — Scalev menolaknya di jalur "targeted
+  // update" (partial patch) ini, dan mengharuskan payload lengkap rebuild seluruh item order kalau
+  // field itu disertakan ("This order update includes fields that require full order item rebuild").
+  // Kalau order punya product_discount, Total Payment di Scalev akan lebih besar dari POS — itu
+  // keterbatasan yang diketahui, bukan bug.
+  if (params.shippingCost !== undefined && params.shippingCost !== null) {
+    patchPayload.shipping_cost = params.shippingCost;
+  }
+  if (params.shippingDiscount !== undefined && params.shippingDiscount !== null) {
+    patchPayload.shipping_discount = params.shippingDiscount;
+  }
+  if (params.otherIncome !== undefined && params.otherIncome !== null) {
+    patchPayload.other_income = params.otherIncome;
   }
 
   const scalevPaymentMethod =
@@ -295,16 +376,31 @@ export async function syncPosOrderToScalev(params: SyncPosOrderToScalevParams): 
     return { ok: false, message: statusResult.message };
   }
 
-  const verification = await getScalevOrderStatus({ apiKey, baseUrl, orderId: scalevOrderId });
-  if (!verification.ok || verification.orderStatus !== 'pending') {
+  // Verifikasi ulang statusnya — Scalev bisa membalas HTTP 200 di langkah PATCH/change-status
+  // sebelumnya padahal diam-diam menolak perubahan (mis. order belum punya alamat/lokasi lengkap).
+  // Yang menentukan berhasil/tidak HANYA status berubah ke pending — selisih kecil di ongkir/total
+  // bayar (mis. dari komponen yang belum ke-sync) tidak menggagalkan, cukup dicatat sebagai info.
+  const snapshotResult = await getScalevOrderSyncSnapshot({ apiKey, baseUrl, orderId: scalevOrderId });
+  const snapshot = snapshotResult.snapshot;
+
+  if (!snapshotResult.ok || !snapshot || snapshot.status !== 'pending') {
     return {
       ok: false,
-      finalStatus: verification.orderStatus,
-      message: `Scalev membalas OK tetapi status order belum berubah ke pending (status saat ini: ${verification.orderStatus ?? 'tidak diketahui'}). Kemungkinan order belum punya alamat/lokasi tujuan lengkap di Scalev.`,
+      finalStatus: snapshot?.status ?? null,
+      message: `Scalev membalas OK tetapi status order belum berubah ke pending (status saat ini: ${snapshot?.status ?? 'tidak diketahui'}). Kemungkinan order belum punya alamat/lokasi tujuan lengkap di Scalev.`,
     };
   }
 
-  return { ok: true, finalStatus: verification.orderStatus, message: 'Order berhasil dikirim & diubah ke pending di Scalev.' };
+  let note = '';
+  if (params.expectedTotalPayment !== undefined && params.expectedTotalPayment !== null) {
+    const diff = (snapshot.grossRevenue ?? 0) - params.expectedTotalPayment;
+    if (Math.abs(diff) > 1) {
+      note = ` (selisih total bayar dengan POS: ${diff > 0 ? '+' : ''}${diff})`;
+      console.warn(`[syncPosOrderToScalev] ${scalevOrderId}: total bayar Scalev ${snapshot.grossRevenue} vs POS ${params.expectedTotalPayment}`);
+    }
+  }
+
+  return { ok: true, finalStatus: snapshot.status, message: `Order berhasil dikirim & status diubah ke pending di Scalev${note}.` };
 }
 
 export type ScalevOrderLine = {

@@ -30,7 +30,8 @@ import {
     X,
     LogOut,
     Settings,
-    Database
+    Database,
+    Wallet
 } from 'lucide-react';
 
 type NavItemProps = {
@@ -180,6 +181,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
                 <div className="sidebar__list">
 
                 {hasAccess('dashboard') && <NavItem href="/dashboard" icon={LayoutDashboard} label="Dashboard" active={pathname === '/dashboard'} />}
+                {hasAccess('rekap_harian') && <NavItem href="/rekap_harian" icon={Wallet} label="Rekap Harian" active={pathname === '/rekap_harian'} />}
                 {hasAccess('scalev') && <NavItem href="/data_scalev" icon={Database} label="Data Scalev" active={pathname === '/data_scalev'} />}
                 {hasAccess('dashboard') && <NavItem href="/landing-page" icon={Globe} label="Landing Page" active={pathname === '/landing-page'} />}
 
@@ -306,17 +308,19 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
 
         <div className="sidebar__footer">
             <div className="sidebar__user">
-                <div className="sidebar__avatar">
-                    {user?.photo_url ? (
-                      <Image src={user.photo_url} alt={user.name || 'User'} fill unoptimized className="sidebar__avatar-image" sizes="40px" />
-                    ) : (
-                      roleInitial
-                    )}
-                </div>
-                <div className="sidebar__user-body">
-                    <p className="sidebar__user-name">{user?.name || 'User'}</p>
-                    <p className="sidebar__user-role">{userRole || 'Role'}</p>
-                </div>
+                <Link href="/profil" className="sidebar__user-link" title="Profil Saya">
+                    <div className="sidebar__avatar">
+                        {user?.photo_url ? (
+                          <Image src={user.photo_url} alt={user.name || 'User'} fill unoptimized className="sidebar__avatar-image" sizes="40px" />
+                        ) : (
+                          roleInitial
+                        )}
+                    </div>
+                    <div className="sidebar__user-body">
+                        <p className="sidebar__user-name">{user?.name || 'User'}</p>
+                        <p className="sidebar__user-role">{userRole || 'Role'}</p>
+                    </div>
+                </Link>
                 <button onClick={logout} className="sidebar__logout" title="Logout">
                     <LogOut size={16} strokeWidth={2.5} />
                 </button>

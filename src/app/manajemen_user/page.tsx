@@ -31,6 +31,7 @@ type UserFormState = {
 
 const availableMenus = [
   { key: 'dashboard', label: 'Dashboard' },
+  { key: 'rekap_harian', label: 'Rekap Harian' },
   { key: 'buat_pesanan', label: 'Buat Pesanan' },
   { key: 'validasi_fat', label: 'Validasi FAT' },
   { key: 'olahan', label: 'Data Pesanan' },

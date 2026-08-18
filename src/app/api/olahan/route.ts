@@ -15,6 +15,7 @@ export async function GET(request: Request) {
     const statusList = searchParams.getAll('status').filter(Boolean);
     const creatorNameList = searchParams.getAll('creator_name').filter(Boolean);
     const warehouseIdList = searchParams.getAll('warehouse_id').filter(Boolean);
+    const paymentMethodList = searchParams.getAll('payment_method').filter(Boolean);
     const search = searchParams.get('search') || '';
     const sort = searchParams.get('sort') || 'created_at';
     const limit = Math.min(Math.max(Number(searchParams.get('limit')) || 20, 1), 100);
@@ -115,6 +116,10 @@ export async function GET(request: Request) {
       conditionQuery += ` AND warehouse_id IN (${warehouseIdList.map(() => '?').join(',')})`;
       params.push(...warehouseIdList);
     }
+    if (paymentMethodList.length > 0) {
+      conditionQuery += ` AND payment_method IN (${paymentMethodList.map(() => '?').join(',')})`;
+      params.push(...paymentMethodList);
+    }
     if (sort === 'processing_at') {
       conditionQuery += ` AND processing_at IS NOT NULL`;
     }
@@ -140,6 +145,7 @@ export async function GET(request: Request) {
             s.courier_service,
             s.tracking_number as resi,
             p.fat_proof_url as id_reff,
+            p.payment_method,
             p.payment_status,
             p.reject_reason,
             CASE
@@ -191,6 +197,7 @@ export async function GET(request: Request) {
             s.courier_service,
             s.tracking_number as resi,
             p.fat_proof_url as id_reff,
+            p.payment_method,
             p.payment_status,
             p.reject_reason,
             CASE
@@ -235,6 +242,7 @@ export async function GET(request: Request) {
             s.courier_service,
             s.tracking_number as resi,
             p.fat_proof_url as id_reff,
+            p.payment_method,
             p.payment_status,
             p.reject_reason,
             CASE

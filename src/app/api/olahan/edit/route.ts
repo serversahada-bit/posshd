@@ -67,6 +67,141 @@ function buildItemsSelectQuery(source: Source, itemsTable: string, legacyItemsTa
   return { query: `${mainSelect} UNION ALL ${legacySelect}`, paramsCount: 2 };
 }
 
+function formatMoney(value: number) {
+  return `Rp${Number(value || 0).toLocaleString('id-ID')}`;
+}
+
+function itemChangeKey(item: ComparableItem) {
+  const type = Boolean(item.is_gift) ? 'gift' : (Boolean(item.is_bundle) ? 'bundle' : 'product');
+  const ref = Number(item.product_id || 0) > 0
+    ? `id:${Number(item.product_id)}`
+    : `name:${String(item.product_name || '').trim().toLowerCase()}`;
+  return `${type}:${ref}`;
+}
+
+function describeItemLabel(item: ComparableItem) {
+  const type = Boolean(item.is_bundle) ? 'Bundle' : (Boolean(item.is_gift) ? 'Hadiah' : 'Produk');
+  return `${type} ${item.product_name || '-'}`;
+}
+
+function summarizeItemChanges(oldItems: ComparableItem[], newItems: ComparableItem[]) {
+  const oldMap = new Map(oldItems.map((item) => [itemChangeKey(item), item]));
+  const newMap = new Map(newItems.map((item) => [itemChangeKey(item), item]));
+  const lines: string[] = [];
+
+  newMap.forEach((newItem, key) => {
+    const oldItem = oldMap.get(key);
+    if (!oldItem) {
+      lines.push(`+ ${describeItemLabel(newItem)} (qty ${newItem.qty}, harga ${formatMoney(newItem.price || 0)})`);
+      return;
+    }
+    const qtyChanged = Number(oldItem.qty || 0) !== Number(newItem.qty || 0);
+    const priceChanged = Number(oldItem.price || 0) !== Number(newItem.price || 0);
+    const discountChanged = Number(oldItem.discount || 0) !== Number(newItem.discount || 0);
+    if (qtyChanged || priceChanged || discountChanged) {
+      const parts: string[] = [];
+      if (qtyChanged) parts.push(`qty ${oldItem.qty} -> ${newItem.qty}`);
+      if (priceChanged) parts.push(`harga ${formatMoney(oldItem.price || 0)} -> ${formatMoney(newItem.price || 0)}`);
+      if (discountChanged) parts.push(`diskon ${formatMoney(oldItem.discount || 0)} -> ${formatMoney(newItem.discount || 0)}`);
+      lines.push(`${describeItemLabel(newItem)}: ${parts.join(', ')}`);
+    }
+  });
+
+  oldMap.forEach((oldItem, key) => {
+    if (!newMap.has(key)) lines.push(`- ${describeItemLabel(oldItem)} (qty ${oldItem.qty})`);
+  });
+
+  return lines;
+}
+
+async function nameLookup(tx: Prisma.TransactionClient, table: string, nameColumn: string, id: number | null | undefined) {
+  if (!id) return null;
+  const rows = await tx.$queryRawUnsafe<any[]>(`SELECT ${nameColumn} AS name FROM ${table} WHERE id=?`, id);
+  return rows[0]?.name || null;
+}
+
+async function describeOrderChanges(
+  tx: Prisma.TransactionClient,
+  params: {
+    old: any;
+    payload: any;
+    warehouseId: number | null;
+    courierId: number | null;
+    oldItems: ComparableItem[];
+    newItems: ComparableItem[];
+    giftItemsChanged: boolean;
+    nonGiftItemsChanged: boolean;
+    oldPayment: any;
+    newPaymentMethod: string;
+    bankName: string | null;
+    accountName: string | null;
+    proofUploaded: boolean;
+    idReff: string | null;
+  },
+) {
+  const { old, payload } = params;
+  const changes: string[] = [];
+
+  const compareMoney = (label: string, oldVal: any, newVal: any) => {
+    const a = Number(oldVal || 0);
+    const b = Number(newVal || 0);
+    if (a !== b) changes.push(`${label}: ${formatMoney(a)} -> ${formatMoney(b)}`);
+  };
+
+  compareMoney('Total Harga Produk', old.total_product_price, payload.total_product_price);
+  compareMoney('Diskon Produk', old.product_discount, payload.product_discount);
+  compareMoney('Ongkos Kirim', old.shipping_cost, payload.shipping_cost);
+  compareMoney('Ongkir Tambahan', old.additional_shipping_cost, payload.other_fee);
+  compareMoney('Diskon Ongkir', old.shipping_discount, payload.shipping_discount || 0);
+  compareMoney('Biaya Lain', old.other_fee, payload.manual_fee_cod);
+  compareMoney('Total Pembayaran', old.total_payment, payload.total_payment);
+
+  if (String(old.notes || '') !== String(payload.notes || '')) {
+    changes.push(`Catatan: "${old.notes || '-'}" -> "${payload.notes || '-'}"`);
+  }
+
+  if (Number(old.warehouse_id || 0) !== Number(params.warehouseId || 0)) {
+    const oldName = await nameLookup(tx, 'warehouses', 'warehouse_name', old.warehouse_id);
+    const newName = await nameLookup(tx, 'warehouses', 'warehouse_name', params.warehouseId);
+    changes.push(`Gudang: ${oldName || '-'} -> ${newName || '-'}`);
+  }
+
+  if (Number(old.courier_id || 0) !== Number(params.courierId || 0)) {
+    const oldName = await nameLookup(tx, 'couriers', 'courier_name', old.courier_id);
+    const newName = await nameLookup(tx, 'couriers', 'courier_name', params.courierId);
+    changes.push(`Kurir: ${oldName || '-'} -> ${newName || '-'}`);
+  }
+
+  const newPromoId = payload.promo_id ? Number(payload.promo_id) : null;
+  if (Number(old.promo_id || 0) !== Number(newPromoId || 0)) {
+    const oldName = await nameLookup(tx, 'promos', 'promo_name', old.promo_id);
+    const newName = await nameLookup(tx, 'promos', 'promo_name', newPromoId);
+    changes.push(`Promo: ${oldName || '-'} -> ${newName || '-'}`);
+  }
+
+  if (params.oldPayment) {
+    const oldMethod = String(params.oldPayment.payment_method || '');
+    const newMethod = String(params.newPaymentMethod || '');
+    if (oldMethod !== newMethod) changes.push(`Metode Pembayaran: ${oldMethod || '-'} -> ${newMethod || '-'}`);
+
+    const oldAccount = params.oldPayment.account_name ? `${params.oldPayment.bank_name || ''} - ${params.oldPayment.account_name}`.trim() : null;
+    const newAccount = params.accountName ? `${params.bankName || ''} - ${params.accountName}`.trim() : null;
+    if ((oldAccount || '') !== (newAccount || '')) changes.push(`Rekening Pembayaran: ${oldAccount || '-'} -> ${newAccount || '-'}`);
+
+    if (params.idReff && params.idReff !== (params.oldPayment.fat_proof_url || null)) {
+      changes.push(`ID Reff: ${params.oldPayment.fat_proof_url || '-'} -> ${params.idReff}`);
+    }
+  }
+
+  if (params.proofUploaded) changes.push('Bukti pembayaran diperbarui (menunggu validasi ulang)');
+
+  if (params.giftItemsChanged || params.nonGiftItemsChanged) {
+    changes.push(...summarizeItemChanges(params.oldItems, params.newItems));
+  }
+
+  return changes;
+}
+
 function buildItemChangeSignature(items: ComparableItem[], mode: 'gift' | 'non-gift') {
   return items
     .filter((item) => mode === 'gift' ? Boolean(item.is_gift) : !Boolean(item.is_gift))
@@ -250,7 +385,7 @@ export async function GET(request: Request) {
       prisma.activity_logs.findMany({
         where: {
           action: {
-            in: ['Edit Pesanan', 'Update Status Pesanan', 'Create Pesanan'],
+            in: ['Edit Pesanan', 'Update Status Pesanan', 'Create Pesanan', 'Approve FAT', 'Reject FAT'],
           },
           OR: [
             {
@@ -406,7 +541,7 @@ export async function PUT(request: Request) {
     if (!items.length) return NextResponse.json({ status: 'error', message: 'Pesanan harus memiliki minimal satu produk atau hadiah' }, { status: 400 });
 
     await prisma.$transaction(async (tx) => {
-      const oldOrders = await tx.$queryRawUnsafe<any[]>(`SELECT warehouse_id, customer_id, customer_address_id, order_status, order_code, total_product_price, product_discount, shipping_cost, additional_shipping_cost, shipping_discount, other_fee, total_payment FROM ${t.orders} WHERE id=? FOR UPDATE`, orderId);
+      const oldOrders = await tx.$queryRawUnsafe<any[]>(`SELECT warehouse_id, customer_id, customer_address_id, order_status, order_code, total_product_price, product_discount, shipping_cost, additional_shipping_cost, shipping_discount, other_fee, total_payment, courier_id, promo_id, notes FROM ${t.orders} WHERE id=? FOR UPDATE`, orderId);
       const old = oldOrders[0];
       if (!old) throw new Error('Pesanan tidak ditemukan');
       const oldItemsSelect = buildItemsSelectQuery(source, t.items, t.legacyItems, false);
@@ -457,9 +592,9 @@ export async function PUT(request: Request) {
       const nextOrderStatus = 'pending';
 
       if (source === 'CSO') {
-        await tx.$executeRawUnsafe(`UPDATE ${t.orders} SET order_code=?, order_status=?,total_product_price=?,product_discount=?,shipping_cost=?,additional_shipping_cost=?,shipping_discount=?,other_fee=?,total_payment=?,notes=?,warehouse_id=?,courier_id=?,promo_id=?,advertiser_name=?,ad_source=?,updated_at=? WHERE id=?`, nextOrderCode, nextOrderStatus, Number(payload.total_product_price), Number(payload.product_discount), Number(payload.shipping_cost), Number(payload.manual_fee_cod), Number(payload.shipping_discount || 0), Number(payload.other_fee), Number(payload.total_payment), payload.notes || null, warehouseId, courierId, payload.promo_id || null, payload.advertiser_name || null, payload.ad_source || null, updatedAt, orderId);
+        await tx.$executeRawUnsafe(`UPDATE ${t.orders} SET order_code=?, order_status=?,total_product_price=?,product_discount=?,shipping_cost=?,additional_shipping_cost=?,shipping_discount=?,other_fee=?,total_payment=?,notes=?,warehouse_id=?,courier_id=?,promo_id=?,advertiser_name=?,ad_source=?,updated_at=? WHERE id=?`, nextOrderCode, nextOrderStatus, Number(payload.total_product_price), Number(payload.product_discount), Number(payload.shipping_cost), Number(payload.other_fee), Number(payload.shipping_discount || 0), Number(payload.manual_fee_cod), Number(payload.total_payment), payload.notes || null, warehouseId, courierId, payload.promo_id || null, payload.advertiser_name || null, payload.ad_source || null, updatedAt, orderId);
       } else {
-        await tx.$executeRawUnsafe(`UPDATE ${t.orders} SET order_code=?, order_status=?,total_product_price=?,product_discount=?,shipping_cost=?,additional_shipping_cost=?,shipping_discount=?,other_fee=?,total_payment=?,notes=?,warehouse_id=?,courier_id=?,is_ro=?,ro_count=?,promo_id=?,updated_at=? WHERE id=?`, nextOrderCode, nextOrderStatus, Number(payload.total_product_price), Number(payload.product_discount), Number(payload.shipping_cost), Number(payload.manual_fee_cod), Number(payload.shipping_discount || 0), Number(payload.other_fee), Number(payload.total_payment), payload.notes || null, warehouseId, courierId, roCount > 0 ? 1 : 0, roCount, payload.promo_id || null, updatedAt, orderId);
+        await tx.$executeRawUnsafe(`UPDATE ${t.orders} SET order_code=?, order_status=?,total_product_price=?,product_discount=?,shipping_cost=?,additional_shipping_cost=?,shipping_discount=?,other_fee=?,total_payment=?,notes=?,warehouse_id=?,courier_id=?,is_ro=?,ro_count=?,promo_id=?,updated_at=? WHERE id=?`, nextOrderCode, nextOrderStatus, Number(payload.total_product_price), Number(payload.product_discount), Number(payload.shipping_cost), Number(payload.other_fee), Number(payload.shipping_discount || 0), Number(payload.manual_fee_cod), Number(payload.total_payment), payload.notes || null, warehouseId, courierId, roCount > 0 ? 1 : 0, roCount, payload.promo_id || null, updatedAt, orderId);
       }
 
       await syncOrderTimestampColumns(tx, t.orders, orderId, nextOrderStatus, updatedAt);
@@ -485,7 +620,7 @@ export async function PUT(request: Request) {
         }
       }
 
-      const pay = await tx.$queryRawUnsafe<any[]>(`SELECT id, payment_status FROM ${t.payments} WHERE order_id=?`, orderId);
+      const pay = await tx.$queryRawUnsafe<any[]>(`SELECT id, payment_status, payment_method, bank_name, account_name, fat_proof_url FROM ${t.payments} WHERE order_id=?`, orderId);
 
       // Hitung apakah total_payment berubah (untuk mendeteksi perlu validasi FAT ulang)
       // total_payment ada di tabel orders (old.total_payment), bukan di payments
@@ -501,9 +636,9 @@ export async function PUT(request: Request) {
         !nonGiftItemsChanged &&
         Number(payload.total_product_price) === Number(old.total_product_price ?? 0) &&
         Number(payload.product_discount) === Number(old.product_discount ?? 0) &&
-        Number(payload.manual_fee_cod) === Number(old.additional_shipping_cost ?? 0) &&
+        Number(payload.manual_fee_cod) === Number(old.other_fee ?? 0) &&
         Number(payload.shipping_discount || 0) === Number(old.shipping_discount ?? 0) &&
-        Number(payload.other_fee) === Number(old.other_fee ?? 0);
+        Number(payload.other_fee) === Number(old.additional_shipping_cost ?? 0);
 
       // Jika pembayaran pernah ditolak FAT atau total transfer berubah, kirim ulang ke antrean validasi FAT.
       const resolvedPaymentStatus =
@@ -583,14 +718,33 @@ export async function PUT(request: Request) {
       }
 
       if (userId) {
+        const header = nextOrderCode !== (old.order_code || resolved.order_code)
+          ? `Mengedit pesanan (Order: ${old.order_code || resolved.order_code} -> ${nextOrderCode}, Source: ${source})`
+          : `Mengedit pesanan (Order: ${nextOrderCode}, Source: ${source})`;
+
+        const changeLines = await describeOrderChanges(tx, {
+          old,
+          payload,
+          warehouseId,
+          courierId,
+          oldItems,
+          newItems: items,
+          giftItemsChanged,
+          nonGiftItemsChanged,
+          oldPayment: pay[0] || null,
+          newPaymentMethod: payload.payment_method,
+          bankName,
+          accountName,
+          proofUploaded: Boolean(proofUrl),
+          idReff: payload.id_reff || null,
+        });
+
         await tx.activity_logs.create({
           data: {
             user_id: userId,
             action: 'Edit Pesanan',
             target: 'Pesanan',
-            details: nextOrderCode !== (old.order_code || resolved.order_code)
-              ? `Mengedit pesanan (Order: ${old.order_code || resolved.order_code} -> ${nextOrderCode}, Source: ${source})`
-              : `Mengedit pesanan (Order: ${nextOrderCode}, Source: ${source})`,
+            details: changeLines.length ? `${header}\n${changeLines.join('\n')}` : header,
             ip_address: ipAddress,
           },
         });

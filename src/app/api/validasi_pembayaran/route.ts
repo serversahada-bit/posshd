@@ -17,6 +17,7 @@ type UnvalidatedOrder = {
   account_name: string | null;
   account_number: string | null;
   reject_reason: string | null;
+  validated_by_name: string | null;
   source_table: 'CSO' | 'CSO_AUTO' | 'CRM';
 };
 
@@ -90,10 +91,12 @@ export async function GET() {
               p.account_name,
               p.account_number,
               p.reject_reason,
+              vu.name as validated_by_name,
               'CSO' as source_table
           FROM orders o
           LEFT JOIN customers c ON o.customer_id = c.id
           INNER JOIN payments p ON o.id = p.order_id
+          LEFT JOIN users vu ON vu.id = p.validated_by
           WHERE p.payment_status != 'paid' AND (p.payment_method = 'bank_transfer' OR (p.payment_method = 'free' AND p.payment_proof_url IS NOT NULL AND p.payment_proof_url != ''))
 
           UNION ALL
@@ -112,10 +115,12 @@ export async function GET() {
               p.account_name,
               p.account_number,
               p.reject_reason,
+              vu.name as validated_by_name,
               'CSO_AUTO' as source_table
           FROM orders_cso o
           LEFT JOIN customers c ON o.customer_id = c.id
           INNER JOIN payments_cso p ON o.id = p.order_id
+          LEFT JOIN users vu ON vu.id = p.validated_by
           WHERE p.payment_status != 'paid' AND (p.payment_method = 'bank_transfer' OR (p.payment_method = 'free' AND p.payment_proof_url IS NOT NULL AND p.payment_proof_url != ''))
 
           UNION ALL
@@ -134,10 +139,12 @@ export async function GET() {
               p.account_name,
               p.account_number,
               p.reject_reason,
+              vu.name as validated_by_name,
               'CRM' as source_table
           FROM orders_crm o
           LEFT JOIN customers c ON o.customer_id = c.id
           INNER JOIN payments_crm p ON o.id = p.order_id
+          LEFT JOIN users vu ON vu.id = p.validated_by
           WHERE p.payment_status != 'paid' AND (p.payment_method = 'bank_transfer' OR (p.payment_method = 'free' AND p.payment_proof_url IS NOT NULL AND p.payment_proof_url != ''))
       ) as combined_unvalidated
       ORDER BY created_at DESC
@@ -171,25 +178,38 @@ export async function POST(request: NextRequest) {
 
     if (action === 'approve') {
       let paymentMethodForApproval: string | null = null;
+      let orderCode: string | null = null;
 
       if (source_table === 'CRM') {
         const payment = await prisma.payments_crm.findUnique({
           where: { id: pid },
-          select: { payment_method: true },
+          select: { payment_method: true, order_id: true },
         });
         paymentMethodForApproval = payment?.payment_method ?? null;
+        if (payment?.order_id) {
+          const order = await prisma.orders_crm.findUnique({ where: { id: payment.order_id }, select: { order_code: true } });
+          orderCode = order?.order_code ?? null;
+        }
       } else if (source_table === 'CSO_AUTO') {
         const payment = await prisma.payments_cso.findUnique({
           where: { id: pid },
-          select: { payment_method: true },
+          select: { payment_method: true, order_id: true },
         });
         paymentMethodForApproval = payment?.payment_method ?? null;
+        if (payment?.order_id) {
+          const order = await prisma.orders_cso.findUnique({ where: { id: payment.order_id }, select: { order_code: true } });
+          orderCode = order?.order_code ?? null;
+        }
       } else {
         const payment = await prisma.payments.findUnique({
           where: { id: pid },
-          select: { payment_method: true },
+          select: { payment_method: true, order_id: true },
         });
         paymentMethodForApproval = payment?.payment_method ?? null;
+        if (payment?.order_id) {
+          const order = await prisma.orders.findUnique({ where: { id: payment.order_id }, select: { order_code: true } });
+          orderCode = order?.order_code ?? null;
+        }
       }
 
       if (!paymentMethodForApproval) {
@@ -207,6 +227,7 @@ export async function POST(request: NextRequest) {
         payment_status: 'paid' as const,
         paid_at: new Date(),
         fat_proof_url: requiresIdReff ? normalizedIdReff : null,
+        validated_by: userId,
       };
 
       if (source_table === 'CRM') {
@@ -226,12 +247,13 @@ export async function POST(request: NextRequest) {
         });
       }
 
+      const approveOrderMarker = orderCode ? ` (Order: ${orderCode}, Source: ${source_table})` : '';
       await createPaymentValidationLog({
         userId,
         action: 'Approve FAT',
         details: requiresIdReff
-          ? `Approve pembayaran ID: ${pid} (ID Reff: ${normalizedIdReff})`
-          : `Approve pembayaran free ID: ${pid}`,
+          ? `Approve pembayaran${approveOrderMarker} - ID Reff: ${normalizedIdReff}`
+          : `Approve pembayaran free${approveOrderMarker}`,
         ipAddress,
       });
 
@@ -242,40 +264,45 @@ export async function POST(request: NextRequest) {
 
     if (action === 'reject') {
       const { reject_reason } = body;
+      let orderCode: string | null = null;
 
       if (source_table === 'CRM') {
         const payment = await prisma.payments_crm.update({
           where: { id: pid },
-          data: { payment_status: 'rejected', reject_reason }
+          data: { payment_status: 'rejected', reject_reason, validated_by: userId }
         });
-        await prisma.orders_crm.update({
+        const order = await prisma.orders_crm.update({
           where: { id: payment.order_id },
           data: { order_status: 'problem' }
         });
+        orderCode = order.order_code;
       } else if (source_table === 'CSO_AUTO') {
         const payment = await prisma.payments_cso.update({
           where: { id: pid },
-          data: { payment_status: 'rejected', reject_reason }
+          data: { payment_status: 'rejected', reject_reason, validated_by: userId }
         });
-        await prisma.orders_cso.update({
+        const order = await prisma.orders_cso.update({
           where: { id: payment.order_id },
           data: { order_status: 'problem' }
         });
+        orderCode = order.order_code;
       } else {
         const payment = await prisma.payments.update({
           where: { id: pid },
-          data: { payment_status: 'rejected', reject_reason }
+          data: { payment_status: 'rejected', reject_reason, validated_by: userId }
         });
-        await prisma.orders.update({
+        const order = await prisma.orders.update({
           where: { id: payment.order_id },
           data: { order_status: 'problem' }
         });
+        orderCode = order.order_code;
       }
 
+      const rejectOrderMarker = orderCode ? ` (Order: ${orderCode}, Source: ${source_table})` : '';
       await createPaymentValidationLog({
         userId,
         action: 'Reject FAT',
-        details: `Tolak pembayaran ID: ${pid}${reject_reason ? ` - Alasan: ${reject_reason}` : ''}`,
+        details: `Tolak pembayaran${rejectOrderMarker}${reject_reason ? ` - Alasan: ${reject_reason}` : ''}`,
         ipAddress,
       });
 

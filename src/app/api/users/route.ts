@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import prisma from '@/lib/db';
 import { users_role } from '@prisma/client';
 import { deleteStoredUpload, saveUploadBuffer } from '@/lib/uploadStorage';
+import { hashPassword } from '@/lib/password';
 
 type UserPayload = {
   id?: number;
@@ -172,13 +173,14 @@ export async function POST(request: NextRequest) {
 
     const photoColumnExists = await hasPhotoUrlColumn();
     const photoUrl = photoColumnExists ? await uploadPhoto(file) : null;
+    const hashedPassword = await hashPassword(password);
 
     if (photoColumnExists) {
       await prisma.$executeRawUnsafe(
         'INSERT INTO users (name, email, password, role, permissions, photo_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())',
         name,
         email,
-        password,
+        hashedPassword,
         role,
         permissions?.length ? JSON.stringify(permissions) : null,
         photoUrl,
@@ -188,7 +190,7 @@ export async function POST(request: NextRequest) {
         'INSERT INTO users (name, email, password, role, permissions, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())',
         name,
         email,
-        password,
+        hashedPassword,
         role,
         permissions?.length ? JSON.stringify(permissions) : null,
       );
@@ -227,7 +229,7 @@ export async function PUT(request: NextRequest) {
       photoUrl = await uploadPhoto(file, existing_photo_url);
     }
 
-    const nextPassword = password ? password : null;
+    const nextPassword = password ? await hashPassword(password) : null;
     if (photoColumnExists) {
       await prisma.$executeRawUnsafe(
         'UPDATE users SET name = ?, email = ?, password = COALESCE(?, password), role = ?, permissions = ?, photo_url = ?, updated_at = NOW() WHERE id = ?',

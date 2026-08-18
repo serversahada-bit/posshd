@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
+import { hashPassword, verifyPassword } from '@/lib/password';
 
 type LoginUserRow = {
   id: number;
@@ -42,11 +43,25 @@ export async function POST(request: NextRequest) {
 
     const user = rows[0];
 
-    if (!user || user.password !== password) {
+    if (!user) {
       return NextResponse.json(
         { success: false, message: 'Username atau password salah!' },
         { status: 401 }
       );
+    }
+
+    const { valid, needsRehash } = await verifyPassword(password, user.password);
+
+    if (!valid) {
+      return NextResponse.json(
+        { success: false, message: 'Username atau password salah!' },
+        { status: 401 }
+      );
+    }
+
+    if (needsRehash) {
+      const upgradedHash = await hashPassword(password);
+      await prisma.$executeRawUnsafe('UPDATE users SET password = ? WHERE id = ?', upgradedHash, user.id);
     }
 
     const sessionUser = {

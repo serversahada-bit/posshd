@@ -171,7 +171,8 @@ export async function POST(request: Request) {
           product_discount: productDiscount,
           shipping_cost: shippingCost,
           shipping_discount: 0,
-          other_fee: manualFeeCod + otherFee, // combining fee COD & other fee
+          other_fee: manualFeeCod,
+          additional_shipping_cost: otherFee,
           promo_id: promoId,
           total_payment: totalPayment,
           notes: notes,
@@ -361,6 +362,11 @@ export async function POST(request: Request) {
             customerName,
             customerPhone: whatsapp,
             paymentMethod,
+            shippingCost,
+            shippingDiscount: 0,
+            productDiscount,
+            otherIncome: manualFeeCod + otherFee,
+            expectedTotalPayment: totalPayment,
           });
 
           if (!syncResult.ok) {

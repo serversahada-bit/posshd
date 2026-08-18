@@ -65,6 +65,13 @@ export async function POST(request: NextRequest) {
       customerName: addr?.receiver_name,
       customerPhone: addr?.whatsapp_number,
       paymentMethod: payment?.payment_method,
+      // additional_shipping_cost diisi lewat halaman edit pesanan (bukan saat pesanan dibuat) —
+      // digabung ke shipping_cost karena Scalev tidak punya field terpisah untuk biaya ongkir tambahan.
+      shippingCost: Number(order.shipping_cost ?? 0) + Number(order.additional_shipping_cost ?? 0),
+      shippingDiscount: order.shipping_discount !== null ? Number(order.shipping_discount) : null,
+      productDiscount: order.product_discount !== null ? Number(order.product_discount) : null,
+      otherIncome: order.other_fee !== null ? Number(order.other_fee) : null,
+      expectedTotalPayment: order.total_payment !== null ? Number(order.total_payment) : null,
     });
 
     if (!result.ok) {

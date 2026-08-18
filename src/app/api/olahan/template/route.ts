@@ -23,11 +23,12 @@ const toList = (value: FilterValue): string[] => {
   return value ? [value] : [];
 };
 
-const buildCondition = (payload: { startDate?: string; endDate?: string; status?: FilterValue; creatorName?: FilterValue; warehouseId?: FilterValue; selectedIds?: string }) => {
-  const { startDate, endDate, status, creatorName, warehouseId, selectedIds } = payload;
+const buildCondition = (payload: { startDate?: string; endDate?: string; status?: FilterValue; creatorName?: FilterValue; warehouseId?: FilterValue; paymentMethod?: FilterValue; selectedIds?: string }) => {
+  const { startDate, endDate, status, creatorName, warehouseId, paymentMethod, selectedIds } = payload;
   const statusList = toList(status);
   const creatorNameList = toList(creatorName);
   const warehouseIdList = toList(warehouseId);
+  const paymentMethodList = toList(paymentMethod);
   let conditionQuery = '';
   const params: Array<string | number> = [];
 
@@ -74,18 +75,22 @@ const buildCondition = (payload: { startDate?: string; endDate?: string; status?
     conditionQuery += ` AND warehouse_id IN (${warehouseIdList.map(() => '?').join(',')})`;
     params.push(...warehouseIdList);
   }
+  if (paymentMethodList.length > 0) {
+    conditionQuery += ` AND payment_method IN (${paymentMethodList.map(() => '?').join(',')})`;
+    params.push(...paymentMethodList);
+  }
 
   return { conditionQuery, params };
 };
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { startDate?: string; endDate?: string; status?: FilterValue; creatorName?: FilterValue; warehouseId?: FilterValue; selectedIds?: string };
+    const body = await request.json() as { startDate?: string; endDate?: string; status?: FilterValue; creatorName?: FilterValue; warehouseId?: FilterValue; paymentMethod?: FilterValue; selectedIds?: string };
     const { conditionQuery, params } = buildCondition(body);
 
     const query = `
       SELECT * FROM (
-        SELECT o.id as order_id, o.order_code, o.order_status, o.created_at, o.warehouse_id,
+        SELECT o.id as order_id, o.order_code, o.order_status, o.created_at, o.warehouse_id, p.payment_method,
           CASE WHEN cu.role = 'admin' THEN NULL ELSE COALESCE(NULLIF(cu.name, ''), NULLIF(cu.email, '')) END as creator_name,
           'CSO' as source_table
         FROM orders o
@@ -95,7 +100,7 @@ export async function POST(request: Request) {
 
         UNION ALL
 
-        SELECT o.id as order_id, o.order_code, o.order_status, o.created_at, o.warehouse_id,
+        SELECT o.id as order_id, o.order_code, o.order_status, o.created_at, o.warehouse_id, p.payment_method,
           CASE WHEN cu.role = 'admin' THEN NULL ELSE COALESCE(NULLIF(cu.name, ''), NULLIF(cu.email, '')) END as creator_name,
           'CSO_AUTO' as source_table
         FROM orders_cso o
@@ -105,7 +110,7 @@ export async function POST(request: Request) {
 
         UNION ALL
 
-        SELECT o.id as order_id, o.order_code, o.order_status, o.created_at, o.warehouse_id,
+        SELECT o.id as order_id, o.order_code, o.order_status, o.created_at, o.warehouse_id, p.payment_method,
           CASE WHEN cu.role = 'admin' THEN NULL ELSE COALESCE(NULLIF(cu.name, ''), NULLIF(cu.email, '')) END as creator_name,
           'CRM' as source_table
         FROM orders_crm o

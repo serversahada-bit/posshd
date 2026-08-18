@@ -172,10 +172,11 @@ const calculateShippingMultiplier = (
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { startDate, endDate, status, creatorName, warehouseId, selectedIds } = body;
+    const { startDate, endDate, status, creatorName, warehouseId, paymentMethod, selectedIds } = body;
     const statusList: string[] = Array.isArray(status) ? status.filter(Boolean) : (status ? [status] : []);
     const creatorNameList: string[] = Array.isArray(creatorName) ? creatorName.filter(Boolean) : (creatorName ? [creatorName] : []);
     const warehouseIdList: string[] = Array.isArray(warehouseId) ? warehouseId.filter(Boolean) : (warehouseId ? [warehouseId] : []);
+    const paymentMethodList: string[] = Array.isArray(paymentMethod) ? paymentMethod.filter(Boolean) : (paymentMethod ? [paymentMethod] : []);
 
     const [
       ordersHasPendingAt,
@@ -275,6 +276,10 @@ export async function POST(request: Request) {
       if (warehouseIdList.length > 0) {
         conditionQuery += ` AND warehouse_id IN (${warehouseIdList.map(() => '?').join(',')})`;
         params.push(...warehouseIdList);
+      }
+      if (paymentMethodList.length > 0) {
+        conditionQuery += ` AND payment_method IN (${paymentMethodList.map(() => '?').join(',')})`;
+        params.push(...paymentMethodList);
       }
     }
 
@@ -556,10 +561,7 @@ export async function POST(request: Request) {
       let adv = order.advertiser_name || '';
       if (csCrm === 'CRM') adv = '';
       
-      const legacyOtherFee = Number(order.other_fee || 0);
-      const fee = Number(order.additional_shipping_cost || 0) > 0
-        ? Number(order.additional_shipping_cost || 0)
-        : (order.payment_method === 'cod' && legacyOtherFee > 0 ? legacyOtherFee : 0);
+      const fee = Number(order.other_fee || 0);
       const ro = (order.is_ro == 1) ? (order.ro_count || '') : '';
 
       let keteranganNinja = '';
@@ -592,7 +594,10 @@ export async function POST(request: Request) {
       if (!csAdvStr) csAdvStr = '-';
 
       const ongkirVal = Number(order.shipping_cost || 0);
-      const diskonVal = Number(order.product_discount || 0);
+      const additionalShippingCost = Number(order.additional_shipping_cost || 0);
+      const diskonVal = additionalShippingCost > 0
+        ? Number(order.product_discount || 0) - additionalShippingCost
+        : Number(order.product_discount || 0);
 
       const roVal = ro ? `RO${ro}` : '-';
       const promoVal = promoName !== '-' ? promoName : '-';

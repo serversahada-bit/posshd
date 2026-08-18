@@ -32,6 +32,7 @@ type OrderItem = {
   reject_reason: string | null;
   courier_name: string | null;
   courier_service: string | null;
+  payment_method: string | null;
   creator_name: string | null;
   source_table: string;
   source_label: string;
@@ -68,6 +69,13 @@ const statusOptions = [
   { value: 'rts', label: 'RTS' },
   { value: 'problem', label: 'Problem' },
   { value: 'cancelled', label: 'Cancel' },
+];
+
+const paymentMethodOptions = [
+  { value: 'bank_transfer', label: 'Transfer Bank' },
+  { value: 'cod', label: 'COD' },
+  { value: 'ewallet', label: 'E-Wallet' },
+  { value: 'free', label: 'Free / Tanpa Pembayaran' },
 ];
 
 const filterSelectStyles = {
@@ -123,6 +131,7 @@ export default function OlahanPage() {
   const [statusFilter, setStatusFilter] = useState<string[]>(statusParam);
   const [creatorFilter, setCreatorFilter] = useState<string[]>([]);
   const [warehouseFilter, setWarehouseFilter] = useState<string[]>([]);
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Draft copies edited inside the filter modal; only committed to the real filters on "Terapkan".
@@ -131,6 +140,7 @@ export default function OlahanPage() {
   const [draftStatusFilter, setDraftStatusFilter] = useState<string[]>([]);
   const [draftCreatorFilter, setDraftCreatorFilter] = useState<string[]>([]);
   const [draftWarehouseFilter, setDraftWarehouseFilter] = useState<string[]>([]);
+  const [draftPaymentMethodFilter, setDraftPaymentMethodFilter] = useState<string[]>([]);
 
   // Sync state when searchParams change
   useEffect(() => {
@@ -158,6 +168,7 @@ export default function OlahanPage() {
       statusFilter.forEach((value) => query.append('status', value));
       creatorFilter.forEach((value) => query.append('creator_name', value));
       warehouseFilter.forEach((value) => query.append('warehouse_id', value));
+      paymentMethodFilter.forEach((value) => query.append('payment_method', value));
       if (searchQuery) query.append('search', searchQuery);
       query.append('limit', String(PAGE_SIZE));
       query.append('offset', String(offsetValue));
@@ -182,7 +193,7 @@ export default function OlahanPage() {
         setTotal(null);
       }
     }
-  }, [creatorFilter, endDate, sortBy, startDate, statusFilter, warehouseFilter, searchQuery]);
+  }, [creatorFilter, endDate, sortBy, startDate, statusFilter, warehouseFilter, paymentMethodFilter, searchQuery]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -459,6 +470,7 @@ export default function OlahanPage() {
           status: statusFilter,
           creatorName: creatorFilter,
           warehouseId: warehouseFilter,
+          paymentMethod: paymentMethodFilter,
           selectedIds: serializeSelectedIds(),
         }),
       });
@@ -488,6 +500,7 @@ export default function OlahanPage() {
           status: statusFilter,
           creatorName: creatorFilter,
           warehouseId: warehouseFilter,
+          paymentMethod: paymentMethodFilter,
           selectedIds: serializeSelectedIds(),
         }),
       });
@@ -525,6 +538,7 @@ export default function OlahanPage() {
     setDraftStatusFilter(statusFilter);
     setDraftCreatorFilter(creatorFilter);
     setDraftWarehouseFilter(warehouseFilter);
+    setDraftPaymentMethodFilter(paymentMethodFilter);
     setIsFilterModalOpen(true);
   };
 
@@ -538,6 +552,7 @@ export default function OlahanPage() {
     setStatusFilter(draftStatusFilter);
     setCreatorFilter(draftCreatorFilter);
     setWarehouseFilter(draftWarehouseFilter);
+    setPaymentMethodFilter(draftPaymentMethodFilter);
     setIsFilterModalOpen(false);
   };
 
@@ -547,6 +562,7 @@ export default function OlahanPage() {
     setDraftStatusFilter([]);
     setDraftCreatorFilter([]);
     setDraftWarehouseFilter([]);
+    setDraftPaymentMethodFilter([]);
   };
 
   const clearAllFilters = () => {
@@ -555,6 +571,7 @@ export default function OlahanPage() {
     setStatusFilter([]);
     setCreatorFilter([]);
     setWarehouseFilter([]);
+    setPaymentMethodFilter([]);
     setSearchQuery('');
   };
 
@@ -611,7 +628,7 @@ export default function OlahanPage() {
   const showProcessingAtColumn = sortBy === 'processing_at';
   const showLastUpdateColumn = sortBy === 'last_update';
   const visibleColumnCount = 8 + (showCreatedAtColumn ? 1 : 0) + (showProcessingAtColumn ? 1 : 0) + (showLastUpdateColumn ? 1 : 0);
-  const activeFilterCount = (startDate ? 1 : 0) + (endDate ? 1 : 0) + statusFilter.length + creatorFilter.length + warehouseFilter.length;
+  const activeFilterCount = (startDate ? 1 : 0) + (endDate ? 1 : 0) + statusFilter.length + creatorFilter.length + warehouseFilter.length + paymentMethodFilter.length;
 
   // Sama seperti submenu "Data Pesanan" di sidebar — disediakan juga sebagai dropdown di halaman ini.
   const viewValue = searchParams.get('status') === 'problem'
@@ -964,6 +981,21 @@ export default function OlahanPage() {
                   onChange={(selected) => setDraftWarehouseFilter(selected.map((item) => item.value))}
                   options={warehouses.map((option) => ({ value: String(option.id), label: option.warehouse_name }))}
                   placeholder="Semua Gudang"
+                  closeMenuOnSelect={false}
+                  components={{ MultiValue: CompactMultiValue }}
+                  menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined}
+                  className="text-sm text-slate-800"
+                  styles={filterSelectStyles}
+                />
+              </div>
+              <div className="w-full md:col-span-2">
+                <label className="block text-xs font-semibold text-slate-500 mb-1.5">Metode Pembayaran</label>
+                <Select
+                  isMulti
+                  value={paymentMethodOptions.filter((option) => draftPaymentMethodFilter.includes(option.value))}
+                  onChange={(selected) => setDraftPaymentMethodFilter(selected.map((item) => item.value))}
+                  options={paymentMethodOptions}
+                  placeholder="Semua Metode Pembayaran"
                   closeMenuOnSelect={false}
                   components={{ MultiValue: CompactMultiValue }}
                   menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined}
