@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useSocketEvent } from '@/hooks/useSocketEvent';
+import { useAuth } from '@/contexts/AuthContext';
 import Swal from 'sweetalert2';
 import { ExternalLink, Check, X } from 'lucide-react';
 
@@ -18,6 +19,9 @@ const getProofUrl = (value?: string | null) => {
 };
 
 export default function ValidasiPembayaranPage() {
+  const { user } = useAuth();
+  const canValidate = user?.role !== 'cs' && user?.role !== 'cs_crm';
+
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -30,6 +34,16 @@ export default function ValidasiPembayaranPage() {
 
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
   const requiresIdReff = selectedPayment?.payment_method === 'bank_transfer';
+
+  // Items modal state
+  const [isItemsModalOpen, setIsItemsModalOpen] = useState(false);
+  const [itemsLoading, setItemsLoading] = useState(false);
+  const [selectedItems, setSelectedItems] = useState<any[]>([]);
+  const [selectedTotals, setSelectedTotals] = useState<any>(null);
+  const [selectedOrderCode, setSelectedOrderCode] = useState('');
+  const [selectedProofUrl, setSelectedProofUrl] = useState('');
+
+  const formatCurrency = (value: number) => `Rp ${Number(value || 0).toLocaleString('id-ID')}`;
 
   const fetchOrders = async () => {
     setLoading(true);
@@ -81,6 +95,29 @@ export default function ValidasiPembayaranPage() {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
     };
   }, [idReff, requiresIdReff]);
+
+  const handleViewItems = async (order: any) => {
+    setSelectedOrderCode(order.order_code);
+    setSelectedItems([]);
+    setSelectedTotals(null);
+    setSelectedProofUrl(order.payment_proof_url || '');
+    setIsItemsModalOpen(true);
+    setItemsLoading(true);
+    try {
+      const res = await fetch(`/api/validasi_pembayaran/items?order_id=${order.order_id}&source_table=${order.source_table}`);
+      const json = await res.json();
+      if (json.status === 'success') {
+        setSelectedItems(json.data?.items || []);
+        setSelectedTotals(json.data?.totals || null);
+      } else {
+        Swal.fire('Error', json.message || 'Gagal mengambil data produk', 'error');
+      }
+    } catch (e: any) {
+      Swal.fire('Error', e.message || 'Gagal mengambil data produk', 'error');
+    } finally {
+      setItemsLoading(false);
+    }
+  };
 
   const handleApproveClick = (order: any) => {
     setSelectedPayment(order);
@@ -188,17 +225,19 @@ export default function ValidasiPembayaranPage() {
                 <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Rekening Tujuan</th>
                 <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Bukti Pembayaran / Approval</th>
                 <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Aksi</th>
+                {canValidate && (
+                  <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Aksi</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-12 text-slate-400 text-sm">Memuat data...</td>
+                  <td colSpan={canValidate ? 8 : 7} className="text-center py-12 text-slate-400 text-sm">Memuat data...</td>
                 </tr>
               ) : orders.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-12 text-slate-400">
+                  <td colSpan={canValidate ? 8 : 7} className="text-center py-12 text-slate-400">
                     <div className="flex flex-col items-center justify-center">
                       <Check className="w-10 h-10 text-slate-300 mb-2" />
                       <p className="text-sm">Tidak ada pembayaran yang perlu divalidasi.</p>
@@ -211,8 +250,14 @@ export default function ValidasiPembayaranPage() {
                     <td className="p-4 text-slate-400 text-xs">
                       {new Date(row.created_at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}
                     </td>
-                    <td className="p-4 font-semibold text-slate-700 text-sm">
-                      {row.order_code}
+                    <td className="p-4 text-sm">
+                      <button
+                        type="button"
+                        onClick={() => handleViewItems(row)}
+                        className="font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+                      >
+                        {row.order_code}
+                      </button>
                     </td>
                     <td className="p-4 font-semibold text-slate-700 text-sm">
                       {row.customer_name}
@@ -254,16 +299,18 @@ export default function ValidasiPembayaranPage() {
                         <span className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-amber-50 text-amber-600 border-amber-200">Menunggu</span>
                       )}
                     </td>
-                    <td className="p-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button onClick={() => handleApproveClick(row)} className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-[11px] font-bold transition-colors shadow-sm">
-                          Approve
-                        </button>
-                        <button onClick={() => handleRejectClick(row)} className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg text-[11px] font-bold transition-colors shadow-sm">
-                          Reject
-                        </button>
-                      </div>
-                    </td>
+                    {canValidate && (
+                      <td className="p-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button onClick={() => handleApproveClick(row)} className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-[11px] font-bold transition-colors shadow-sm">
+                            Approve
+                          </button>
+                          <button onClick={() => handleRejectClick(row)} className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg text-[11px] font-bold transition-colors shadow-sm">
+                            Reject
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))
               )}
@@ -315,6 +362,112 @@ export default function ValidasiPembayaranPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Detail Produk */}
+      {isItemsModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-3xl rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+            <div className="flex justify-between items-center p-6 border-b border-slate-100">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">Detail Produk</h3>
+                <p className="text-xs text-slate-400 mt-0.5">{selectedOrderCode}</p>
+              </div>
+              <button onClick={() => setIsItemsModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_280px]">
+            <div className="p-6 max-h-[70vh] overflow-y-auto">
+              {itemsLoading ? (
+                <p className="text-center text-sm text-slate-400 py-8">Memuat data...</p>
+              ) : selectedItems.length === 0 ? (
+                <p className="text-center text-sm text-slate-400 py-8">Tidak ada produk ditemukan.</p>
+              ) : (
+                <>
+                  <div className="divide-y divide-slate-100">
+                    {selectedItems.map((item, idx) => (
+                      <div key={idx} className="flex items-start justify-between py-2.5 gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium text-slate-700">{item.product_name}</span>
+                            {item.is_bundle ? (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold border bg-indigo-50 text-indigo-600 border-indigo-200">Bundle</span>
+                            ) : item.is_gift ? (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold border bg-emerald-50 text-emerald-600 border-emerald-200">Hadiah</span>
+                            ) : null}
+                          </div>
+                          <p className="text-xs text-slate-400 mt-0.5">{item.qty} x {formatCurrency(item.price)}</p>
+                        </div>
+                        <span className="text-sm font-bold text-slate-800 shrink-0">
+                          {formatCurrency(Number(item.price || 0) * Number(item.qty || 0) - Number(item.discount || 0))}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {selectedTotals && (
+                    <div className="mt-4 pt-4 border-t border-slate-200 space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500">Harga Produk</span>
+                        <span className="font-medium text-slate-700">{formatCurrency(selectedTotals.product_price)}</span>
+                      </div>
+                      {selectedTotals.product_discount > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-500">Diskon Produk</span>
+                          <span className="font-medium text-rose-600">- {formatCurrency(selectedTotals.product_discount)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500">Ongkir</span>
+                        <span className="font-medium text-slate-700">{formatCurrency(selectedTotals.shipping_cost)}</span>
+                      </div>
+                      {selectedTotals.shipping_discount > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-500">Diskon Ongkir</span>
+                          <span className="font-medium text-rose-600">- {formatCurrency(selectedTotals.shipping_discount)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500">Fee COD</span>
+                        <span className="font-medium text-slate-700">{formatCurrency(selectedTotals.cod_fee)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500">Biaya Lainnya</span>
+                        <span className="font-medium text-slate-700">{formatCurrency(selectedTotals.other_fee)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm pt-2 mt-1 border-t border-dashed border-slate-200">
+                        <span className="font-bold text-slate-800">Total Pembayaran</span>
+                        <span className="font-black text-purple-600">{formatCurrency(selectedTotals.total_payment)}</span>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="p-6 border-t md:border-t-0 md:border-l border-slate-100 bg-slate-50/50 flex flex-col">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Bukti Transfer</p>
+              {selectedProofUrl ? (
+                <a href={getProofUrl(selectedProofUrl)} target="_blank" rel="noreferrer" className="block group">
+                  <img
+                    src={getProofUrl(selectedProofUrl)}
+                    alt="Bukti Transfer"
+                    className="w-full rounded-xl border border-slate-200 object-contain max-h-64 bg-white group-hover:opacity-90 transition-opacity"
+                  />
+                  <span className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-purple-600 group-hover:underline">
+                    <ExternalLink className="w-3.5 h-3.5" /> Lihat ukuran penuh
+                  </span>
+                </a>
+              ) : (
+                <div className="flex-1 flex items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white py-10">
+                  <p className="text-sm text-slate-400">Tidak ada bukti transfer</p>
+                </div>
+              )}
+            </div>
+            </div>
           </div>
         </div>
       )}

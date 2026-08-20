@@ -581,7 +581,9 @@ export async function POST(request: Request) {
         .replace(/\s+/g, '.');
       let advSource = order.ad_source || '';
 
-      if (csCrm === 'CRM') {
+      const isResendNoAdvertiser = csCrm === 'CSO' && notesStr.includes('[RESEND]') && !(order.advertiser_name || '').trim();
+
+      if (csCrm === 'CRM' || isResendNoAdvertiser) {
         advName = 'CRM';
         if (notesStr.toLowerCase().includes('meta ads')) {
           advSource = 'Meta Ads';

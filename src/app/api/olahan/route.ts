@@ -154,6 +154,7 @@ export async function GET(request: Request) {
             END as creator_name,
             'CSO' as source_table,
             CASE
+                WHEN o.notes LIKE '[RESEND]%' AND (o.advertiser_name IS NULL OR o.advertiser_name = '') THEN 'RESEND CRM'
                 WHEN o.notes LIKE '[RESEND]%' THEN 'RESEND'
                 ELSE 'CSO AKUISISI'
             END as source_label

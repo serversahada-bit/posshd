@@ -808,6 +808,7 @@ export default function OlahanPage() {
                           if (row.source_label === 'CRM') badgeClass = 'bg-cyan-50 text-cyan-700 border-cyan-200';
                           else if (row.source_label === 'CSO AKUISISI') badgeClass = 'bg-blue-50 text-blue-700 border-blue-200';
                           else if (row.source_label === 'RESEND') badgeClass = 'bg-orange-50 text-orange-700 border-orange-200';
+                          else if (row.source_label === 'RESEND CRM') badgeClass = 'bg-pink-50 text-pink-700 border-pink-200';
                           return <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${badgeClass}`}>{row.source_label}</span>;
                         })()}
                         {row.advertiser_name ? <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border bg-emerald-50 text-emerald-700 border-emerald-200">ADV: {row.advertiser_name}</span> : null}
