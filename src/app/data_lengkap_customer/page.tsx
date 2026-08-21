@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, Download, Upload, Trash2, FileSpreadsheet, Search, Edit, Truck, SlidersHorizontal, X } from 'lucide-react';
+import { Loader2, Download, Upload, Trash2, FileSpreadsheet, Search, Edit, Truck, SlidersHorizontal, X, ExternalLink } from 'lucide-react';
 import Swal from 'sweetalert2';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -100,6 +100,20 @@ const CompactMultiValue = (props: MultiValueProps<FilterOption, true>) => {
 
 const getErrorMessage = (error: unknown) => (error instanceof Error ? error.message : 'Terjadi kesalahan');
 
+const formatCurrency = (value: number) => `Rp ${Number(value || 0).toLocaleString('id-ID')}`;
+
+const getProofUrl = (value?: string | null) => {
+  if (!value) {
+    return '';
+  }
+
+  if (value.startsWith('http://') || value.startsWith('https://')) {
+    return value;
+  }
+
+  return `/${value.replace(/^\/+/, '')}`;
+};
+
 export default function OlahanPage() {
   const { user } = useAuth();
   const router = useRouter();
@@ -115,6 +129,15 @@ export default function OlahanPage() {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+
+  // Items detail modal state
+  const [isItemsModalOpen, setIsItemsModalOpen] = useState(false);
+  const [itemsLoading, setItemsLoading] = useState(false);
+  const [selectedItems, setSelectedItems] = useState<any[]>([]);
+  const [selectedTotals, setSelectedTotals] = useState<any>(null);
+  const [selectedOrderCode, setSelectedOrderCode] = useState('');
+  const [selectedProofUrl, setSelectedProofUrl] = useState('');
+  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
 
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -308,6 +331,32 @@ export default function OlahanPage() {
 
   const getIdsBySource = (source: string) => selectedIds.filter((item) => item.source === source).map((item) => item.id).join(',');
   const serializeSelectedIds = () => selectedIds.map((item) => `${item.source}:${item.id}`).join(',');
+
+  const handleViewItems = async (order: OrderItem) => {
+    setSelectedOrderCode(order.order_code);
+    setSelectedItems([]);
+    setSelectedTotals(null);
+    setSelectedProofUrl('');
+    setSelectedCustomer(null);
+    setIsItemsModalOpen(true);
+    setItemsLoading(true);
+    try {
+      const res = await fetch(`/api/validasi_pembayaran/items?order_id=${order.order_id}&source_table=${order.source_table}`);
+      const json = await res.json();
+      if (json.status === 'success') {
+        setSelectedItems(json.data?.items || []);
+        setSelectedTotals(json.data?.totals || null);
+        setSelectedProofUrl(json.data?.payment_proof_url || '');
+        setSelectedCustomer(json.data?.customer || null);
+      } else {
+        Swal.fire('Error', json.message || 'Gagal mengambil data produk', 'error');
+      }
+    } catch (e: any) {
+      Swal.fire('Error', e.message || 'Gagal mengambil data produk', 'error');
+    } finally {
+      setItemsLoading(false);
+    }
+  };
 
   const applyBulkStatus = async () => {
     if (selectedIds.length === 0) {
@@ -782,7 +831,13 @@ export default function OlahanPage() {
                     {showProcessingAtColumn ? <td className="p-4 text-slate-500 text-xs align-top whitespace-nowrap">{row.processing_at ? formatDate(row.processing_at) : '-'}</td> : null}
                     {showLastUpdateColumn ? <td className="p-4 text-slate-500 text-xs align-top whitespace-nowrap">{formatDate(row.last_update)}</td> : null}
                     <td className="p-4 align-top">
-                      <span className="font-bold text-slate-700">{row.order_code}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleViewItems(row)}
+                        className="font-bold text-blue-600 hover:text-blue-700 hover:underline"
+                      >
+                        {row.order_code}
+                      </button>
                       <div className="flex flex-wrap items-center gap-1.5 mt-1">
                         {(() => {
                           let badgeClass = 'bg-blue-50 text-blue-700 border-blue-200';
@@ -974,6 +1029,119 @@ export default function OlahanPage() {
           </div>
         </div>
       ) : null}
+
+      {/* Modal Detail Produk */}
+      {isItemsModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-3xl rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+            <div className="flex justify-between items-center p-6 border-b border-slate-100">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">Detail Produk</h3>
+                <p className="text-xs text-slate-400 mt-0.5">{selectedOrderCode}</p>
+              </div>
+              <button onClick={() => setIsItemsModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_280px]">
+              <div className="p-6 max-h-[70vh] overflow-y-auto">
+                {selectedCustomer && (
+                  <div className="mb-4 pb-4 border-b border-slate-200">
+                    <p className="text-sm font-bold text-slate-800">{selectedCustomer.name}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{selectedCustomer.whatsapp_number}</p>
+                    <p className="text-xs text-slate-500 mt-1">{selectedCustomer.address}</p>
+                  </div>
+                )}
+                {itemsLoading ? (
+                  <p className="text-center text-sm text-slate-400 py-8">Memuat data...</p>
+                ) : selectedItems.length === 0 ? (
+                  <p className="text-center text-sm text-slate-400 py-8">Tidak ada produk ditemukan.</p>
+                ) : (
+                  <>
+                    <div className="divide-y divide-slate-100">
+                      {selectedItems.map((item, idx) => (
+                        <div key={idx} className="flex items-start justify-between py-2.5 gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-medium text-slate-700">{item.product_name}</span>
+                              {item.is_bundle ? (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold border bg-indigo-50 text-indigo-600 border-indigo-200">Bundle</span>
+                              ) : item.is_gift ? (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold border bg-emerald-50 text-emerald-600 border-emerald-200">Hadiah</span>
+                              ) : null}
+                            </div>
+                            <p className="text-xs text-slate-400 mt-0.5">{item.qty} x {formatCurrency(item.price)}</p>
+                          </div>
+                          <span className="text-sm font-bold text-slate-800 shrink-0">
+                            {formatCurrency(Number(item.price || 0) * Number(item.qty || 0) - Number(item.discount || 0))}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {selectedTotals && (
+                      <div className="mt-4 pt-4 border-t border-slate-200 space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-500">Harga Produk</span>
+                          <span className="font-medium text-slate-700">{formatCurrency(selectedTotals.product_price)}</span>
+                        </div>
+                        {selectedTotals.product_discount > 0 && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-slate-500">Diskon Produk</span>
+                            <span className="font-medium text-rose-600">- {formatCurrency(selectedTotals.product_discount)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-500">Ongkir</span>
+                          <span className="font-medium text-slate-700">{formatCurrency(selectedTotals.shipping_cost)}</span>
+                        </div>
+                        {selectedTotals.shipping_discount > 0 && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-slate-500">Diskon Ongkir</span>
+                            <span className="font-medium text-rose-600">- {formatCurrency(selectedTotals.shipping_discount)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-500">Fee COD</span>
+                          <span className="font-medium text-slate-700">{formatCurrency(selectedTotals.cod_fee)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-500">Biaya Lainnya</span>
+                          <span className="font-medium text-slate-700">{formatCurrency(selectedTotals.other_fee)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm pt-2 mt-1 border-t border-dashed border-slate-200">
+                          <span className="font-bold text-slate-800">Total Pembayaran</span>
+                          <span className="font-black text-purple-600">{formatCurrency(selectedTotals.total_payment)}</span>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="p-6 border-t md:border-t-0 md:border-l border-slate-100 bg-slate-50/50 flex flex-col">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Bukti Transfer</p>
+                {selectedProofUrl ? (
+                  <a href={getProofUrl(selectedProofUrl)} target="_blank" rel="noreferrer" className="block group">
+                    <img
+                      src={getProofUrl(selectedProofUrl)}
+                      alt="Bukti Transfer"
+                      className="w-full rounded-xl border border-slate-200 object-contain max-h-64 bg-white group-hover:opacity-90 transition-opacity"
+                    />
+                    <span className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-purple-600 group-hover:underline">
+                      <ExternalLink className="w-3.5 h-3.5" /> Lihat ukuran penuh
+                    </span>
+                  </a>
+                ) : (
+                  <div className="flex-1 flex items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white py-10">
+                    <p className="text-sm text-slate-400">Tidak ada bukti transfer</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

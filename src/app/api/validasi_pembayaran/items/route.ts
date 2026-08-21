@@ -12,7 +12,7 @@ const itemSelect = {
   is_bundle: true,
 } as const;
 
-const orderTotalsSelect = {
+const orderSelect = {
   total_product_price: true,
   product_discount: true,
   shipping_cost: true,
@@ -20,6 +20,8 @@ const orderTotalsSelect = {
   other_fee: true,
   additional_shipping_cost: true,
   total_payment: true,
+  customer_id: true,
+  customer_address_id: true,
 } as const;
 
 export async function GET(request: NextRequest) {
@@ -34,29 +36,51 @@ export async function GET(request: NextRequest) {
 
     let items;
     let order;
+    let payment;
     if (sourceTable === 'CRM') {
-      [items, order] = await Promise.all([
+      [items, order, payment] = await Promise.all([
         prisma.order_items_crm.findMany({ where: { order_id: orderId }, select: itemSelect }),
-        prisma.orders_crm.findUnique({ where: { id: orderId }, select: orderTotalsSelect }),
+        prisma.orders_crm.findUnique({ where: { id: orderId }, select: orderSelect }),
+        prisma.payments_crm.findFirst({ where: { order_id: orderId }, orderBy: { id: 'desc' }, select: { payment_proof_url: true } }),
       ]);
     } else if (sourceTable === 'CSO_AUTO') {
-      [items, order] = await Promise.all([
+      [items, order, payment] = await Promise.all([
         prisma.order_items_cso.findMany({ where: { order_id: orderId }, select: itemSelect }),
-        prisma.orders_cso.findUnique({ where: { id: orderId }, select: orderTotalsSelect }),
+        prisma.orders_cso.findUnique({ where: { id: orderId }, select: orderSelect }),
+        prisma.payments_cso.findFirst({ where: { order_id: orderId }, orderBy: { id: 'desc' }, select: { payment_proof_url: true } }),
       ]);
     } else {
-      const [main, legacy, orderRow] = await Promise.all([
+      const [main, legacy, orderRow, paymentRow] = await Promise.all([
         prisma.order_items.findMany({ where: { order_id: orderId }, select: itemSelect }),
         prisma.order_items_resend.findMany({ where: { order_id: orderId }, select: itemSelect }),
-        prisma.orders.findUnique({ where: { id: orderId }, select: orderTotalsSelect }),
+        prisma.orders.findUnique({ where: { id: orderId }, select: orderSelect }),
+        prisma.payments.findFirst({ where: { order_id: orderId }, orderBy: { id: 'desc' }, select: { payment_proof_url: true } }),
       ]);
       items = [...main, ...legacy];
       order = orderRow;
+      payment = paymentRow;
     }
 
     if (!order) {
       return NextResponse.json({ status: 'error', message: 'Pesanan tidak ditemukan' }, { status: 404 });
     }
+
+    const [customer, customerAddress] = await Promise.all([
+      prisma.customers.findUnique({
+        where: { id: order.customer_id },
+        select: { name: true, whatsapp_number: true, address: true },
+      }),
+      order.customer_address_id
+        ? prisma.customer_addresses.findUnique({
+            where: { id: order.customer_address_id },
+            select: { receiver_name: true, whatsapp_number: true, address: true },
+          })
+        : null,
+    ]);
+
+    const customerName = customerAddress?.receiver_name || customer?.name || '-';
+    const whatsappNumber = customerAddress?.whatsapp_number || customer?.whatsapp_number || '-';
+    const fullAddress = customerAddress?.address || customer?.address || '-';
 
     const safeItems = items.map((item) => ({
       product_name: item.product_name,
@@ -79,6 +103,12 @@ export async function GET(request: NextRequest) {
           cod_fee: Number(order.other_fee || 0),
           other_fee: Number(order.additional_shipping_cost || 0),
           total_payment: Number(order.total_payment || 0),
+        },
+        payment_proof_url: payment?.payment_proof_url || null,
+        customer: {
+          name: customerName,
+          whatsapp_number: whatsappNumber,
+          address: fullAddress || '-',
         },
       },
     });

@@ -32,6 +32,33 @@ const toSafeString = (value: unknown): string => {
   return typeof value === 'bigint' ? value.toString() : String(value);
 };
 
+const normalizeCourierKey = (value: unknown): string =>
+  String(value || '').trim().replace(/\s+/g, ' ').toUpperCase();
+
+const calculateShippingMultiplier = (
+  totalWeightGrams: number,
+  courierName: string,
+  shippingWeightSettings: { base_weight_gram?: number | null; extra_weight_step_gram?: number | null; rounding_tolerance_gram?: number | null } | null,
+  courierWeightRules: Record<string, { base_weight_gram?: number | null; extra_weight_step_gram?: number | null; rounding_tolerance_gram?: number | null }>,
+) => {
+  const rule = courierWeightRules[normalizeCourierKey(courierName)] || {};
+  const settings = shippingWeightSettings || {};
+  const baseWeight = Math.max(Number(rule.base_weight_gram ?? settings.base_weight_gram ?? 1000) || 1000, 1);
+  const extraStep = Math.max(Number(rule.extra_weight_step_gram ?? settings.extra_weight_step_gram ?? 1000) || 1000, 1);
+  const tolerance = Math.max(Number(rule.rounding_tolerance_gram ?? settings.rounding_tolerance_gram ?? 0) || 0, 0);
+  const total = Math.max(Number(totalWeightGrams) || 0, 0);
+
+  if (total <= baseWeight) {
+    return 1;
+  }
+
+  const excessWeight = total - baseWeight;
+  const fullSteps = Math.floor(excessWeight / extraStep);
+  const remainder = excessWeight % extraStep;
+
+  return 1 + fullSteps + (remainder > tolerance ? 1 : 0);
+};
+
 const toExcelValue = (value: unknown): string | number | Date => {
   if (value instanceof Date) {
     return value;
@@ -290,7 +317,7 @@ export async function POST(request: Request) {
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
               o.advertiser_name, o.ad_source,
               c.name as customer_name, c.whatsapp_number, c.email, c.address, c.subdistrict, c.age, c.complaint,
-              p.payment_method,
+              p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
               w.code as warehouse_code,
@@ -314,7 +341,7 @@ export async function POST(request: Request) {
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
               ${ordersCsoAdvertiserSelect} as advertiser_name, ${ordersCsoAdSourceSelect} as ad_source,
               c.name as customer_name, c.whatsapp_number, c.email, c.address, c.subdistrict, c.age, c.complaint,
-              p.payment_method,
+              p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
               w.code as warehouse_code,
@@ -338,7 +365,7 @@ export async function POST(request: Request) {
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
               ${ordersCrmAdvertiserSelect} as advertiser_name, ${ordersCrmAdSourceSelect} as ad_source,
               c.name as customer_name, c.whatsapp_number, c.email, c.address, c.subdistrict, c.age, c.complaint,
-              p.payment_method,
+              p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
               w.code as warehouse_code,
@@ -358,13 +385,42 @@ export async function POST(request: Request) {
 
     const orders: any[] = await prisma.$queryRawUnsafe(rawQuery, ...params);
 
+    const [shippingWeightSettings, courierRules] = await Promise.all([
+      prisma.shipping_weight_settings.findFirst({
+        select: {
+          base_weight_gram: true,
+          extra_weight_step_gram: true,
+          rounding_tolerance_gram: true,
+        },
+      }),
+      prisma.couriers.findMany({
+        select: {
+          courier_name: true,
+          code: true,
+          base_weight_gram: true,
+          extra_weight_step_gram: true,
+          rounding_tolerance_gram: true,
+        },
+      }),
+    ]);
+
+    const courierWeightRules: Record<string, { base_weight_gram?: number | null; extra_weight_step_gram?: number | null; rounding_tolerance_gram?: number | null }> = {};
+    courierRules.forEach((courier) => {
+      if (courier.code) {
+        courierWeightRules[normalizeCourierKey(courier.code)] = courier;
+      }
+      if (courier.courier_name) {
+        courierWeightRules[normalizeCourierKey(courier.courier_name)] = courier;
+      }
+    });
+
     const workbook = new ExcelJS.Workbook();
     workbook.creator = '';
     const worksheet = workbook.addWorksheet('Sheet1');
 
     const headers = [
       'Tanggal Proses', 'No Resi', 'Timestamp', 'Unique Code', 'Data Lengkap Pesanan Pembeli', 
-      'FIRST NAME', 'CONTACT*', 'Alamat', 'kecamatan', 'kota/kabupaten', 'Provinsi', 'BERAT', 
+      'FIRST NAME', 'CONTACT*', 'Alamat', 'kota/kabupaten', 'kecamatan', 'Provinsi', 'BERAT', 
       'JUMLAH BARANG', 'Harga Barang', 'HADIAH / BONUS', 'ISI PAKET', 'COD VALUE', 'Keterangan', 
       'Ekspedisi', 'Tipe Pembayaran', 'Bukti Transfer Paket Non COD', 'Usia Customer', 
       'Keluhan / Penyakit Customer', 'Keterangan Ninja', 
@@ -485,11 +541,15 @@ export async function POST(request: Request) {
         ekspedisi += ' ' + order.courier_service;
       }
 
-      let berat = 1;
-      const weightGram = Number(order.total_weight_gram || 0);
-      if (weightGram > 0) {
-        berat = Math.ceil(weightGram / 1000);
+      const freePaymentReason = toSafeString(order.payment_bank_name).trim();
+      const freePaymentReasonKey = freePaymentReason.toLowerCase();
+      const isInternalOrOfflineFree = order.payment_method === 'free' && ['ekpedisi internal', 'ekspedisi internal', 'offline'].includes(freePaymentReasonKey);
+      if (isInternalOrOfflineFree) {
+        ekspedisi = '-';
       }
+
+      const weightGram = Number(order.total_weight_gram || 0);
+      const berat = calculateShippingMultiplier(weightGram, order.courier_name || '', shippingWeightSettings, courierWeightRules);
 
       let codValue: string | number = '';
       if (order.payment_method === 'cod' || order.payment_method === 'no_payment') {
@@ -529,10 +589,7 @@ export async function POST(request: Request) {
       let adv = order.advertiser_name || '';
       if (csCrm === 'CRM') adv = '';
       
-      const legacyOtherFee = Number(order.other_fee || 0);
-      const fee = Number(order.additional_shipping_cost || 0) > 0
-        ? Number(order.additional_shipping_cost || 0)
-        : (order.payment_method === 'cod' && legacyOtherFee > 0 ? legacyOtherFee : 0);
+      const fee = Number(order.other_fee || 0);
       const ro = (order.is_ro == 1) ? (order.ro_count || '') : '';
 
       let keteranganNinja = '';
@@ -551,7 +608,9 @@ export async function POST(request: Request) {
         .replace(/\s+/g, '.');
       let advSource = order.ad_source || '';
 
-      if (csCrm === 'CRM') {
+      const isResendNoAdvertiser = csCrm === 'CSO' && notesStr.includes('[RESEND]') && !(order.advertiser_name || '').trim();
+
+      if (csCrm === 'CRM' || isResendNoAdvertiser) {
         advName = 'CRM';
         if (notesStr.toLowerCase().includes('meta ads')) {
           advSource = 'Meta Ads';
@@ -564,7 +623,10 @@ export async function POST(request: Request) {
       if (!csAdvStr) csAdvStr = '-';
 
       const ongkirVal = Number(order.shipping_cost || 0);
-      const diskonVal = Number(order.product_discount || 0);
+      const additionalShippingCost = Number(order.additional_shipping_cost || 0);
+      const diskonVal = additionalShippingCost > 0
+        ? Number(order.product_discount || 0) - additionalShippingCost
+        : Number(order.product_discount || 0);
 
       const roVal = ro ? `RO${ro}` : '-';
       const promoVal = promoName !== '-' ? promoName : '-';
@@ -592,7 +654,14 @@ export async function POST(request: Request) {
       }
 
       let buktiTransfer = '';
-      if (['processing', 'ready_to_ship', 'shipped'].includes(order.order_status)) {
+      const idReff = toSafeString(order.id_reff);
+      if (isInternalOrOfflineFree && freePaymentReason) {
+        buktiTransfer = freePaymentReason;
+      } else if (order.payment_method === 'bank_transfer' && idReff) {
+        buktiTransfer = idReff;
+      } else if (order.payment_status === 'rejected') {
+        buktiTransfer = 'rejected';
+      } else if (order.payment_method === 'bank_transfer' && ['processing', 'ready_to_ship', 'shipped'].includes(order.order_status)) {
         buktiTransfer = 'Process';
       }
 
@@ -622,8 +691,8 @@ export async function POST(request: Request) {
         customerNameMod,
         order.whatsapp_number ? String(order.whatsapp_number) : '',
         addressUpper,
-        kecamatan,
         kotaKab,
+        kecamatan,
         provinsi,
         berat,
         totalQty,

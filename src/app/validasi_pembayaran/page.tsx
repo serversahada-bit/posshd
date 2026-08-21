@@ -42,6 +42,7 @@ export default function ValidasiPembayaranPage() {
   const [selectedTotals, setSelectedTotals] = useState<any>(null);
   const [selectedOrderCode, setSelectedOrderCode] = useState('');
   const [selectedProofUrl, setSelectedProofUrl] = useState('');
+  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
 
   const formatCurrency = (value: number) => `Rp ${Number(value || 0).toLocaleString('id-ID')}`;
 
@@ -101,6 +102,7 @@ export default function ValidasiPembayaranPage() {
     setSelectedItems([]);
     setSelectedTotals(null);
     setSelectedProofUrl(order.payment_proof_url || '');
+    setSelectedCustomer(null);
     setIsItemsModalOpen(true);
     setItemsLoading(true);
     try {
@@ -109,6 +111,7 @@ export default function ValidasiPembayaranPage() {
       if (json.status === 'success') {
         setSelectedItems(json.data?.items || []);
         setSelectedTotals(json.data?.totals || null);
+        setSelectedCustomer(json.data?.customer || null);
       } else {
         Swal.fire('Error', json.message || 'Gagal mengambil data produk', 'error');
       }
@@ -381,6 +384,13 @@ export default function ValidasiPembayaranPage() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-[1fr_280px]">
             <div className="p-6 max-h-[70vh] overflow-y-auto">
+              {selectedCustomer && (
+                <div className="mb-4 pb-4 border-b border-slate-200">
+                  <p className="text-sm font-bold text-slate-800">{selectedCustomer.name}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{selectedCustomer.whatsapp_number}</p>
+                  <p className="text-xs text-slate-500 mt-1">{selectedCustomer.address}</p>
+                </div>
+              )}
               {itemsLoading ? (
                 <p className="text-center text-sm text-slate-400 py-8">Memuat data...</p>
               ) : selectedItems.length === 0 ? (
