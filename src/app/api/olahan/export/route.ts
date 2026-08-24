@@ -292,7 +292,7 @@ export async function POST(request: Request) {
               o.additional_shipping_cost,
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
               o.advertiser_name, o.ad_source,
-              COALESCE(ca.receiver_name, c.name) as customer_name, COALESCE(ca.whatsapp_number, c.whatsapp_number) as whatsapp_number, c.email, COALESCE(ca.address, c.address) as address, c.subdistrict, c.age, c.complaint,
+              COALESCE(ca.receiver_name, c.name) as customer_name, COALESCE(ca.whatsapp_number, c.whatsapp_number) as whatsapp_number, c.email, COALESCE(ca.address, c.address) as address, c.subdistrict, ca.district as ca_district, ca.city as ca_city, ca.province as ca_province, c.age, c.complaint,
               p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
@@ -317,7 +317,7 @@ export async function POST(request: Request) {
               o.additional_shipping_cost,
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
               ${ordersCsoAdvertiserSelect} as advertiser_name, ${ordersCsoAdSourceSelect} as ad_source,
-              COALESCE(ca.receiver_name, c.name) as customer_name, COALESCE(ca.whatsapp_number, c.whatsapp_number) as whatsapp_number, c.email, COALESCE(ca.address, c.address) as address, c.subdistrict, c.age, c.complaint,
+              COALESCE(ca.receiver_name, c.name) as customer_name, COALESCE(ca.whatsapp_number, c.whatsapp_number) as whatsapp_number, c.email, COALESCE(ca.address, c.address) as address, c.subdistrict, ca.district as ca_district, ca.city as ca_city, ca.province as ca_province, c.age, c.complaint,
               p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
@@ -342,7 +342,7 @@ export async function POST(request: Request) {
               o.additional_shipping_cost,
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
               ${ordersCrmAdvertiserSelect} as advertiser_name, ${ordersCrmAdSourceSelect} as ad_source,
-              COALESCE(ca.receiver_name, c.name) as customer_name, COALESCE(ca.whatsapp_number, c.whatsapp_number) as whatsapp_number, c.email, COALESCE(ca.address, c.address) as address, c.subdistrict, c.age, c.complaint,
+              COALESCE(ca.receiver_name, c.name) as customer_name, COALESCE(ca.whatsapp_number, c.whatsapp_number) as whatsapp_number, c.email, COALESCE(ca.address, c.address) as address, c.subdistrict, ca.district as ca_district, ca.city as ca_city, ca.province as ca_province, c.age, c.complaint,
               p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
@@ -491,7 +491,11 @@ export async function POST(request: Request) {
       const parts = subdistrictStr.split(',').map((p: string) => p.trim()).filter(Boolean);
       let kecamatan = '', kotaKab = '', provinsi = '';
 
-      if (parts.length >= 3) {
+      if (order.ca_district || order.ca_city || order.ca_province) {
+        kecamatan = order.ca_district || '';
+        kotaKab = order.ca_city || '';
+        provinsi = order.ca_province || '';
+      } else if (parts.length >= 3) {
         const firstPart = parts[0].toUpperCase();
         const provinceHints = ['ACEH', 'SUMATERA', 'RIAU', 'JAMBI', 'BENGKULU', 'LAMPUNG', 'BANTEN', 'JAKARTA', 'DKI', 'JAWA', 'YOGYAKARTA', 'DIY', 'BALI', 'NTB', 'NUSA', 'KALIMANTAN', 'SULAWESI', 'GORONTALO', 'MALUKU', 'PAPUA'];
         const looksLikeProvinceFirst = provinceHints.some(hint => firstPart.includes(hint));
