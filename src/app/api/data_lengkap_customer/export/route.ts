@@ -316,7 +316,7 @@ export async function POST(request: Request) {
               o.additional_shipping_cost,
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
               o.advertiser_name, o.ad_source,
-              c.name as customer_name, c.whatsapp_number, c.email, c.address, c.subdistrict, c.age, c.complaint,
+              COALESCE(ca.receiver_name, c.name) as customer_name, COALESCE(ca.whatsapp_number, c.whatsapp_number) as whatsapp_number, c.email, COALESCE(ca.address, c.address) as address, c.subdistrict, c.age, c.complaint,
               p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
@@ -326,6 +326,7 @@ export async function POST(request: Request) {
               COALESCE(NULLIF(cu.email, ''), NULLIF(cu.name, ''), (SELECT COALESCE(NULLIF(u.email, ''), NULLIF(u.name, '')) FROM activity_logs a JOIN users u ON a.user_id = u.id WHERE a.details LIKE CONCAT('%(Order: ', o.order_code, ',%') OR a.details LIKE CONCAT('%(Order: ', o.order_code, ')%') ORDER BY a.id DESC LIMIT 1), 'User') as creator_name
           FROM orders o
           LEFT JOIN customers c ON o.customer_id = c.id
+          LEFT JOIN customer_addresses ca ON ca.id = o.customer_address_id
           LEFT JOIN payments p ON o.id = p.order_id
           LEFT JOIN shipments s ON o.id = s.order_id
           LEFT JOIN warehouses w ON COALESCE(s.warehouse_id, o.warehouse_id) = w.id
@@ -340,7 +341,7 @@ export async function POST(request: Request) {
               o.additional_shipping_cost,
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
               ${ordersCsoAdvertiserSelect} as advertiser_name, ${ordersCsoAdSourceSelect} as ad_source,
-              c.name as customer_name, c.whatsapp_number, c.email, c.address, c.subdistrict, c.age, c.complaint,
+              COALESCE(ca.receiver_name, c.name) as customer_name, COALESCE(ca.whatsapp_number, c.whatsapp_number) as whatsapp_number, c.email, COALESCE(ca.address, c.address) as address, c.subdistrict, c.age, c.complaint,
               p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
@@ -350,6 +351,7 @@ export async function POST(request: Request) {
               COALESCE(NULLIF(cu.email, ''), NULLIF(cu.name, ''), (SELECT COALESCE(NULLIF(u.email, ''), NULLIF(u.name, '')) FROM activity_logs a JOIN users u ON a.user_id = u.id WHERE a.details LIKE CONCAT('%(Order: ', o.order_code, ',%') OR a.details LIKE CONCAT('%(Order: ', o.order_code, ')%') ORDER BY a.id DESC LIMIT 1), 'User') as creator_name
           FROM orders_cso o
           LEFT JOIN customers c ON o.customer_id = c.id
+          LEFT JOIN customer_addresses ca ON ca.id = o.customer_address_id
           LEFT JOIN payments_cso p ON o.id = p.order_id
           LEFT JOIN shipments_cso s ON o.id = s.order_id
           LEFT JOIN warehouses w ON COALESCE(s.warehouse_id, o.warehouse_id) = w.id
@@ -364,7 +366,7 @@ export async function POST(request: Request) {
               o.additional_shipping_cost,
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
               ${ordersCrmAdvertiserSelect} as advertiser_name, ${ordersCrmAdSourceSelect} as ad_source,
-              c.name as customer_name, c.whatsapp_number, c.email, c.address, c.subdistrict, c.age, c.complaint,
+              COALESCE(ca.receiver_name, c.name) as customer_name, COALESCE(ca.whatsapp_number, c.whatsapp_number) as whatsapp_number, c.email, COALESCE(ca.address, c.address) as address, c.subdistrict, c.age, c.complaint,
               p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
@@ -374,6 +376,7 @@ export async function POST(request: Request) {
               COALESCE(NULLIF(cu.email, ''), NULLIF(cu.name, ''), (SELECT COALESCE(NULLIF(u.email, ''), NULLIF(u.name, '')) FROM activity_logs a JOIN users u ON a.user_id = u.id WHERE a.details LIKE CONCAT('%(Order: ', o.order_code, ',%') OR a.details LIKE CONCAT('%(Order: ', o.order_code, ')%') ORDER BY a.id DESC LIMIT 1), 'User') as creator_name
           FROM orders_crm o
           LEFT JOIN customers c ON o.customer_id = c.id
+          LEFT JOIN customer_addresses ca ON ca.id = o.customer_address_id
           LEFT JOIN payments_crm p ON o.id = p.order_id
           LEFT JOIN shipments_crm s ON o.id = s.order_id
           LEFT JOIN warehouses w ON COALESCE(s.warehouse_id, o.warehouse_id) = w.id
