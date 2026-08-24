@@ -558,7 +558,7 @@ export default function BuatPesananPage() {
                         setWhatsappNumber(c.whatsapp_number || '');
                         setEmail(c.email || '');
                         setAddress(c.address || '');
-                        const locStr = [c.subdistrict, c.city, c.province].filter(Boolean).join(', ');
+                        const locStr = [c.province, c.city, c.subdistrict].filter(Boolean).join(', ');
                         setSubdistrict(locStr || '');
                         setDestSearch(locStr || '');
                         setDesa(c.desa || '');
@@ -568,7 +568,7 @@ export default function BuatPesananPage() {
                         setShowForm(true);
                       }}>
                       <p className="font-bold text-sm text-slate-800">{c.name}</p>
-                      <p className="text-xs text-slate-500">{c.whatsapp_number} - {[c.subdistrict, c.city, c.province].filter(Boolean).join(', ')}</p>
+                      <p className="text-xs text-slate-500">{c.whatsapp_number} - {[c.province, c.city, c.subdistrict].filter(Boolean).join(', ')}</p>
                     </div>
                   ))}
                   {customerSearchOpts.length === 0 && (
