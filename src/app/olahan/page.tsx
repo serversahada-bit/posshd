@@ -756,37 +756,41 @@ export default function OlahanPage() {
 
           <div className="flex flex-col md:flex-row md:flex-wrap md:items-center md:justify-between gap-3">
             <div className="flex flex-col md:flex-row md:flex-wrap md:items-center gap-3">
-              <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap">
-                <button type="button" onClick={() => void downloadTemplate()} disabled={isDownloadingTemplate} title="Download Template" className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-slate-300 text-slate-600 bg-white hover:bg-slate-50 hover:border-slate-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-semibold">
-                  {isDownloadingTemplate ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                  Template
-                </button>
+              {user?.role === 'admin' ? (
+                <>
+                  <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap">
+                    <button type="button" onClick={() => void downloadTemplate()} disabled={isDownloadingTemplate} title="Download Template" className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-slate-300 text-slate-600 bg-white hover:bg-slate-50 hover:border-slate-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-semibold">
+                      {isDownloadingTemplate ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                      Template
+                    </button>
 
-                <button type="button" onClick={openUploadModal} title="Upload Status" className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-slate-300 text-slate-600 bg-white hover:bg-slate-50 hover:border-slate-400 transition-colors text-sm font-semibold">
-                  <Upload className="w-4 h-4" />
-                  Upload Status
-                </button>
+                    <button type="button" onClick={openUploadModal} title="Upload Status" className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-slate-300 text-slate-600 bg-white hover:bg-slate-50 hover:border-slate-400 transition-colors text-sm font-semibold">
+                      <Upload className="w-4 h-4" />
+                      Upload Status
+                    </button>
 
-                <button type="button" onClick={() => void submitExport()} disabled={exporting} title="Export Excel" className="col-span-2 md:col-span-1 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-slate-300 text-slate-600 bg-white hover:bg-slate-50 hover:border-slate-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-semibold">
-                  {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
-                  Export Excel
-                </button>
-              </div>
+                    <button type="button" onClick={() => void submitExport()} disabled={exporting} title="Export Excel" className="col-span-2 md:col-span-1 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-slate-300 text-slate-600 bg-white hover:bg-slate-50 hover:border-slate-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-semibold">
+                      {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+                      Export Excel
+                    </button>
+                  </div>
 
-              <div className="hidden md:block w-px self-stretch bg-slate-200" />
+                  <div className="hidden md:block w-px self-stretch bg-slate-200" />
 
-              {/* Bulk Update Status */}
-              <div className="w-full md:w-auto flex items-center gap-1.5 p-1 bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300">
-                <select value={bulkStatus} onChange={(event) => setBulkStatus(event.target.value)} className="flex-1 min-w-0 text-sm font-semibold text-slate-600 bg-transparent border-none focus:ring-0 outline-none cursor-pointer px-3 py-1.5">
-                  <option value="" disabled>-- Ubah Status Massal --</option>
-                  {statusOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-                <button type="button" onClick={() => void applyBulkStatus()} className="shrink-0 bg-slate-800 hover:bg-slate-900 text-white px-4 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 shadow-sm hover:shadow-md active:scale-95">
-                  Terapkan
-                </button>
-              </div>
+                  {/* Bulk Update Status */}
+                  <div className="w-full md:w-auto flex items-center gap-1.5 p-1 bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300">
+                    <select value={bulkStatus} onChange={(event) => setBulkStatus(event.target.value)} className="flex-1 min-w-0 text-sm font-semibold text-slate-600 bg-transparent border-none focus:ring-0 outline-none cursor-pointer px-3 py-1.5">
+                      <option value="" disabled>-- Ubah Status Massal --</option>
+                      {statusOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                    <button type="button" onClick={() => void applyBulkStatus()} className="shrink-0 bg-slate-800 hover:bg-slate-900 text-white px-4 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 shadow-sm hover:shadow-md active:scale-95">
+                      Terapkan
+                    </button>
+                  </div>
+                </>
+              ) : null}
             </div>
 
             {user?.role === 'admin' ? (

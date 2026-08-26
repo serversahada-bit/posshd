@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import ExcelJS from 'exceljs';
+import { splitRegionParts } from '@/lib/address';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +32,8 @@ const toSafeString = (value: unknown): string => {
 
   return typeof value === 'bigint' ? value.toString() : String(value);
 };
+
+const formatContactNumber = (value: unknown): string => toSafeString(value).replace(/^\+/, '');
 
 const normalizeCourierKey = (value: unknown): string =>
   String(value || '').trim().replace(/\s+/g, ' ').toUpperCase();
@@ -488,31 +491,17 @@ export async function POST(request: Request) {
 
       // --- Address Parsing ---
       const subdistrictStr = (order.subdistrict || '').trim();
-      const parts = subdistrictStr.split(',').map((p: string) => p.trim()).filter(Boolean);
       let kecamatan = '', kotaKab = '', provinsi = '';
 
       if (order.ca_district || order.ca_city || order.ca_province) {
         kecamatan = order.ca_district || '';
         kotaKab = order.ca_city || '';
         provinsi = order.ca_province || '';
-      } else if (parts.length >= 3) {
-        const firstPart = parts[0].toUpperCase();
-        const provinceHints = ['ACEH', 'SUMATERA', 'RIAU', 'JAMBI', 'BENGKULU', 'LAMPUNG', 'BANTEN', 'JAKARTA', 'DKI', 'JAWA', 'YOGYAKARTA', 'DIY', 'BALI', 'NTB', 'NUSA', 'KALIMANTAN', 'SULAWESI', 'GORONTALO', 'MALUKU', 'PAPUA'];
-        const looksLikeProvinceFirst = provinceHints.some(hint => firstPart.includes(hint));
-
-        if (looksLikeProvinceFirst) {
-          provinsi = parts[0] || '';
-          kotaKab = parts[1] || '';
-          kecamatan = parts[2] || '';
-        } else {
-          kecamatan = parts[0] || '';
-          kotaKab = parts[1] || '';
-          provinsi = parts[2] || '';
-        }
       } else {
-        kecamatan = parts[0] || '';
-        kotaKab = parts[1] || (order.city || '');
-        provinsi = order.province || '';
+        const region = splitRegionParts(subdistrictStr);
+        kecamatan = region.district || '';
+        kotaKab = region.city || (order.city || '');
+        provinsi = region.province || (order.province || '');
       }
 
       let ekspedisi = order.courier_name || '';
@@ -660,7 +649,7 @@ export async function POST(request: Request) {
         order.order_code,
         dataLengkap,
         customerNameMod,
-        order.whatsapp_number ? String(order.whatsapp_number) : '',
+        order.whatsapp_number ? formatContactNumber(order.whatsapp_number) : '',
         addressUpper,
         kotaKab,
         kecamatan,
@@ -695,7 +684,7 @@ export async function POST(request: Request) {
 
       const outputRow = worksheet.addRow(rowData.map(toExcelValue));
       outputRow.getCell(2).value = noResiStr;
-      outputRow.getCell(7).value = order.whatsapp_number ? toSafeString(order.whatsapp_number) : '';
+      outputRow.getCell(7).value = order.whatsapp_number ? formatContactNumber(order.whatsapp_number) : '';
     }
 
     const referenceWidths = [

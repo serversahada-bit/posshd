@@ -49,3 +49,7 @@ next-env.d.ts
 
 # script with hardcoded real API key
 /test-full.js
+
+# stray leftover build cache (no real source)
+/pos-app
+.next-dev.log

@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { syncOrderTimestampColumns } from '@/lib/orderTimestamps';
 import { logOrderStatusChange } from '@/lib/orderStatusLog';
 import { upsertCustomerAddressSnapshot } from '@/lib/customerAddress';
+import { splitRegionParts } from '@/lib/address';
 import { saveUploadBuffer } from '@/lib/uploadStorage';
 
 export const dynamic = 'force-dynamic';
@@ -568,7 +569,7 @@ export async function PUT(request: Request) {
       }
 
       const region = String(payload.subdistrict || '');
-      const regionParts = region.split(',').map((x: string) => x.trim());
+      const regionParts = splitRegionParts(region);
       await tx.$executeRawUnsafe(`UPDATE customers SET email=?,subdistrict=?,desa=?,age=?,complaint=?,updated_at=? WHERE id=?`, payload.email || null, region, payload.desa || null, payload.age === '' ? null : Number(payload.age), payload.complaint || null, updatedAt, old.customer_id);
       const customerAddress = await upsertCustomerAddressSnapshot(tx, {
         customerId: old.customer_id,
@@ -576,9 +577,9 @@ export async function PUT(request: Request) {
         receiverName: payload.customer_name,
         whatsappNumber: payload.whatsapp_number,
         address: payload.address,
-        district: regionParts[2] || null,
-        city: regionParts[1] || null,
-        province: regionParts[0] || null,
+        district: regionParts.district || null,
+        city: regionParts.city || null,
+        province: regionParts.province || null,
       });
       if (!old.customer_address_id || Number(old.customer_address_id) !== customerAddress.id) {
         await tx.$executeRawUnsafe(`UPDATE ${t.orders} SET customer_address_id=? WHERE id=?`, customerAddress.id, orderId);

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
+import { splitRegionParts } from '@/lib/address';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,10 +23,10 @@ export async function GET(request: Request) {
     );
   }
 
-  const parts = subdistrict.split(',').map((p) => p.trim());
-  const province = parts[0] || '';
-  const city = parts[1] || '';
-  const district = parts[2] || '';
+  const region = splitRegionParts(subdistrict);
+  const province = region.province || '';
+  const city = region.city || '';
+  const district = region.district || '';
 
   const originToWarehouseIds: Record<string, number[]> = {
     madiun: [1, 2, 5],

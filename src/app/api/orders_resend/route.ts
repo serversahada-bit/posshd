@@ -7,6 +7,7 @@ import { emitEvent } from '@/lib/socket-server';
 import { cookies } from 'next/headers';
 import { resolveOrderItem } from '@/lib/orderItems';
 import { upsertCustomerAddressSnapshot } from '@/lib/customerAddress';
+import { splitRegionParts } from '@/lib/address';
 import { saveUploadBuffer } from '@/lib/uploadStorage';
 
 export const dynamic = 'force-dynamic';
@@ -98,10 +99,10 @@ export async function POST(request: Request) {
     }
 
     if (!customerId && customerName) {
-      const parts = subdistrict ? subdistrict.split(',') : [];
-      const province = parts[0]?.trim() || null;
-      const city = parts[1]?.trim() || null;
-      const district = parts[2]?.trim() || null;
+      const newCustomerRegion = splitRegionParts(subdistrict);
+      const province = newCustomerRegion.province || null;
+      const city = newCustomerRegion.city || null;
+      const district = newCustomerRegion.district || null;
 
       const newCust = await prisma.customers.create({
         data: {
@@ -171,15 +172,15 @@ export async function POST(request: Request) {
 
     const orderResult = await prisma.$transaction(async (tx) => {
       const orderCode = await generateOrderCode(tx, { warehouseId, courierName, paymentMethod });
-      const regionParts = subdistrict ? subdistrict.split(',').map((part) => part.trim()) : [];
+      const region = splitRegionParts(subdistrict);
       const addressSnapshot = await upsertCustomerAddressSnapshot(tx, {
         customerId,
         receiverName: customerName,
         whatsappNumber: whatsapp,
         address,
-        district: regionParts[2] || null,
-        city: regionParts[1] || null,
-        province: regionParts[0] || null,
+        district: region.district || null,
+        city: region.city || null,
+        province: region.province || null,
       });
 
       const order = await tx.orders.create({
