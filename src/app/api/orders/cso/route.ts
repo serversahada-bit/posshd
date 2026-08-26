@@ -7,6 +7,8 @@ import { emitEvent } from '@/lib/socket-server';
 import { resolveOrderItem } from '@/lib/orderItems';
 import { upsertCustomerAddressSnapshot } from '@/lib/customerAddress';
 import { splitRegionParts } from '@/lib/address';
+import { syncOrderTimestampColumns } from '@/lib/orderTimestamps';
+import { logOrderCreated } from '@/lib/orderStatusLog';
 import { saveUploadBuffer } from '@/lib/uploadStorage';
 import { getScalevBaseUrl, syncPosOrderToScalev } from '@/lib/scalev';
 
@@ -30,6 +32,7 @@ export async function POST(request: Request) {
     const cookieStore = await cookies();
     const formData = await request.formData();
     const createdByUserId = Number(cookieStore.get('sahada_user_id')?.value || formData.get('user_id')) || null;
+    const ipAddress = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || null;
 
     // Parse Customer Data
     const customerIdStr = formData.get('customer_id') as string;
@@ -182,6 +185,10 @@ export async function POST(request: Request) {
           warehouse_id: warehouseId,
         }
       });
+
+      const eventAt = new Date();
+      await syncOrderTimestampColumns(tx, 'orders', order.id, 'pending', eventAt);
+      await logOrderCreated(tx, { userId: createdByUserId, orderCode: order.order_code, source: 'CSO', toStatus: 'pending', ipAddress });
 
       // 2. Create Items & Deduct Stock
       let totalWeightGrams = 0;

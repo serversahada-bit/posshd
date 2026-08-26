@@ -9,6 +9,8 @@ import { resolveOrderItem } from '@/lib/orderItems';
 import { upsertCustomerAddressSnapshot } from '@/lib/customerAddress';
 import { splitRegionParts } from '@/lib/address';
 import { saveUploadBuffer } from '@/lib/uploadStorage';
+import { syncOrderTimestampColumns } from '@/lib/orderTimestamps';
+import { logOrderCreated } from '@/lib/orderStatusLog';
 
 export const dynamic = 'force-dynamic';
 
@@ -76,6 +78,7 @@ export async function POST(request: Request) {
     const cookieStore = await cookies();
     const formData = await request.formData();
     const createdByUserId = Number(cookieStore.get('sahada_user_id')?.value || formData.get('user_id')) || null;
+    const ipAddress = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || null;
 
     // Parse Customer Data
     const customerIdStr = formData.get('customer_id') as string;
@@ -209,6 +212,10 @@ export async function POST(request: Request) {
           warehouse_id: warehouseId,
         }
       });
+
+      const eventAt = new Date();
+      await syncOrderTimestampColumns(tx, 'orders', order.id, 'pending', eventAt);
+      await logOrderCreated(tx, { userId: createdByUserId, orderCode: order.order_code, source: 'RESEND', toStatus: 'pending', ipAddress });
 
       let totalWeightGrams = 0;
       for (let i = 0; i < pIds.length; i++) {

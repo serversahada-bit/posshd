@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertCircle, ArrowLeft, Loader2, MapPin, Plus, Save, ShieldCheck, ShoppingCart, Trash2, Truck, UserRound, X } from 'lucide-react';
 import Swal from 'sweetalert2';
@@ -82,6 +82,13 @@ export default function EditOrderForm() {
   const [availableCouriers, setAvailableCouriers] = useState<any[]>([]);
   const [loadingCouriers, setLoadingCouriers] = useState(false);
 
+  // Snapshot of subdistrict/weight as loaded from the order, so the shipping-rate
+  // refresh below only overwrites shipping_cost when the admin actually changed
+  // the destination or items — not just because today's tariff differs from the
+  // rate the order was originally charged.
+  const baselineSubdistrictRef = useRef<string | null>(null);
+  const baselineWeightRef = useRef<number | null>(null);
+
   useEffect(() => {
     if (!proof) {
       setProofPreview('');
@@ -120,7 +127,7 @@ export default function EditOrderForm() {
         const productWeightById = new Map<number, number>(
           (loaded.products || []).map((product: any) => [Number(product.id), number(product.weight_gram)] as [number, number]),
         );
-        setItems(
+        const nextItems =
           loaded.items.map((item: any) => {
             const isGift = Boolean(item.is_gift);
             const isBundle = Boolean(item.is_bundle);
@@ -145,8 +152,10 @@ export default function EditOrderForm() {
               image_url: item.image_url,
               weight_gram: number(bundleWeight ?? matched?.weight_gram ?? loaded.shippingWeightSettings?.default_item_weight_gram ?? 200),
             };
-          }),
-        );
+          });
+        setItems(nextItems);
+        baselineSubdistrictRef.current = order.subdistrict || '';
+        baselineWeightRef.current = nextItems.reduce((sum: number, item: Item) => sum + number(item.weight_gram) * number(item.qty), 0);
         setForm({
           order_code: order.order_code || '',
           customer_name: order.customer_name || '',
@@ -316,8 +325,15 @@ export default function EditOrderForm() {
 
       setAvailableCouriers(nextOptions);
 
-      // Auto-update shipping_cost kalau kurir sudah dipilih sebelumnya
-      if (form.courier_id && form.warehouse_id) {
+      // Auto-update shipping_cost kalau kurir sudah dipilih sebelumnya — tapi hanya jika
+      // tujuan/berat memang berubah dari saat order dimuat, supaya harga yang sudah
+      // tersimpan (dan sudah dibayar/di-export) tidak tertimpa cuma karena tarif hari ini
+      // sudah beda, misal saat admin sekadar membuka halaman Edit tanpa mengubah apa pun.
+      const destinationOrWeightChanged =
+        baselineSubdistrictRef.current !== null &&
+        (form.subdistrict !== baselineSubdistrictRef.current || totalWeight !== baselineWeightRef.current);
+
+      if (form.courier_id && form.warehouse_id && destinationOrWeightChanged) {
         const activeOption = nextOptions.find(
           (opt) =>
             String(opt.courierId) === String(form.courier_id) &&
