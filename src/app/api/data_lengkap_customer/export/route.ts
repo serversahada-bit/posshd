@@ -245,15 +245,21 @@ export async function POST(request: Request) {
               ELSE NULL
           END`;
 
-    const ordersPendingAtSelect = ordersHasPendingAt ? 'COALESCE(o.pending_at, o.created_at)' : pendingFallback;
+    // For bank-transfer orders that have cleared Validasi Pembayaran, "Order Masuk" should
+    // reflect the moment payment was validated (p.paid_at) rather than when the order was
+    // first submitted — matches the same rule applied in /api/olahan.
+    const withPaidAtPreference = (expr: string) =>
+      `CASE WHEN p.payment_method = 'bank_transfer' AND p.paid_at IS NOT NULL THEN p.paid_at ELSE ${expr} END`;
+
+    const ordersPendingAtSelect = withPaidAtPreference(ordersHasPendingAt ? 'COALESCE(o.pending_at, o.created_at)' : pendingFallback);
     const ordersProcessingAtSelect = ordersHasProcessingAt ? 'o.processing_at' : processingFallback;
     const ordersCsoAdvertiserSelect = ordersCsoHasAdvertiser ? 'o.advertiser_name' : 'NULL';
     const ordersCsoAdSourceSelect = ordersCsoHasAdSource ? 'o.ad_source' : 'NULL';
-    const ordersCsoPendingAtSelect = ordersCsoHasPendingAt ? 'COALESCE(o.pending_at, o.created_at)' : pendingFallback;
+    const ordersCsoPendingAtSelect = withPaidAtPreference(ordersCsoHasPendingAt ? 'COALESCE(o.pending_at, o.created_at)' : pendingFallback);
     const ordersCsoProcessingAtSelect = ordersCsoHasProcessingAt ? 'o.processing_at' : processingFallback;
     const ordersCrmAdvertiserSelect = ordersCrmHasAdvertiser ? 'o.advertiser_name' : 'NULL';
     const ordersCrmAdSourceSelect = ordersCrmHasAdSource ? 'o.ad_source' : 'NULL';
-    const ordersCrmPendingAtSelect = ordersCrmHasPendingAt ? 'COALESCE(o.pending_at, o.created_at)' : pendingFallback;
+    const ordersCrmPendingAtSelect = withPaidAtPreference(ordersCrmHasPendingAt ? 'COALESCE(o.pending_at, o.created_at)' : pendingFallback);
     const ordersCrmProcessingAtSelect = ordersCrmHasProcessingAt ? 'o.processing_at' : processingFallback;
 
     let conditionQuery = '';
