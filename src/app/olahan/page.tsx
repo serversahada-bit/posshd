@@ -112,6 +112,9 @@ const getErrorMessage = (error: unknown) => (error instanceof Error ? error.mess
 
 const formatCurrency = (value: number) => `Rp ${Number(value || 0).toLocaleString('id-ID')}`;
 
+// Resend orders stash the original order code in notes as "[OLD:xxx]" (see orders_resend/route.ts).
+const getOldOrderId = (notes: string | null) => notes?.match(/\[OLD:(.*?)\]/)?.[1]?.trim() || null;
+
 const getProofUrl = (value?: string | null) => {
   if (!value) {
     return '';
@@ -877,6 +880,7 @@ export default function OlahanPage() {
                       {row.warehouse_name ? <div className="text-[11px] text-slate-500 font-medium mt-1 truncate">Gudang: <span className="font-bold text-slate-700">{row.warehouse_name}</span></div> : null}
                       {row.id_reff ? <div className="text-[11px] text-slate-500 font-medium mt-1.5 truncate">ID Reff: <span className="font-bold text-slate-700">{row.id_reff}</span></div> : null}
                       {row.resi ? <div className="text-[11px] text-slate-500 font-medium mt-1 truncate">Resi: <span className="font-bold text-slate-700">{row.resi}</span></div> : null}
+                      {getOldOrderId(row.notes) ? <div className="text-[11px] text-slate-500 font-medium mt-1 truncate">Order Lama: <span className="font-bold text-slate-700">{getOldOrderId(row.notes)}</span></div> : null}
                     </td>
                     <td className="p-4 align-top"><p className="font-bold text-slate-700">{row.customer_name}</p><p className="text-xs text-slate-500 mt-0.5">{row.whatsapp_number}</p></td>
                     <td className="p-4 text-slate-600 align-top max-w-[150px] truncate">{row.desa || '-'}</td>

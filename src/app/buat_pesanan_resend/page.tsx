@@ -84,6 +84,7 @@ export default function BuatPesananPage() {
   const [age, setAge] = useState('');
   const [complaint, setComplaint] = useState('');
   const [notes, setNotes] = useState('');
+  const [oldOrderId, setOldOrderId] = useState('');
   const [advertiserName, setAdvertiserName] = useState('');
   const [adSource, setAdSource] = useState('');
 
@@ -448,6 +449,7 @@ export default function BuatPesananPage() {
     fd.append('age', age);
     fd.append('complaint', complaint);
     fd.append('notes', notes);
+    fd.append('old_order_id', oldOrderId.trim());
     fd.append('advertiser_name', advertiserName);
     fd.append('ad_source', adSource);
     fd.append('promo_id', promoIds.map(p => p.value).join(','));
@@ -595,6 +597,10 @@ export default function BuatPesananPage() {
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Nama Lengkap <span className="text-red-500">*</span></label>
                   <input required value={customerName} onChange={e => setCustomerName(e.target.value)} type="text" className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 focus:border-purple-300 outline-none text-sm placeholder:text-slate-400" placeholder="Contoh: Budi Santoso" />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">ID Order Lama (Opsional)</label>
+                  <input value={oldOrderId} onChange={e => setOldOrderId(e.target.value)} type="text" className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 focus:border-purple-300 outline-none text-sm placeholder:text-slate-400" placeholder="Contoh: 260804RMBJA03" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Nama Advertiser</label>

@@ -137,7 +137,9 @@ export async function POST(request: Request) {
     const courierName = formData.get('courier_name') as string;
     const paymentMethod = formData.get('payment_method') as string;
     const noPaymentMethodId = parseInt(formData.get('no_payment_method_id') as string, 10) || 0;
-    const notes = '[RESEND] ' + (formData.get('notes') as string || '').trim();
+    const oldOrderId = ((formData.get('old_order_id') as string) || '').trim().replace(/[[\]]/g, '');
+    const oldOrderTag = oldOrderId ? `[OLD:${oldOrderId}]` : '';
+    const notes = `[RESEND]${oldOrderTag} ` + (formData.get('notes') as string || '').trim();
     const advertiserName = formData.get('advertiser_name') as string;
     const adSource = formData.get('ad_source') as string;
     const promoId = formData.get('promo_id') as string;
