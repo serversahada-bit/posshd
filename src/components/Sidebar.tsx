@@ -146,6 +146,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
   const isDataLengkapActive = pathname === '/data_lengkap_customer';
   const isGudangActive = ['/setting_gudang', '/stok_produk', '/stok_hadiah'].includes(pathname);
   const isPembayaranActive = ['/setting_payment', '/setting_no_payment'].includes(pathname);
+  const isValidasiActive = ['/validasi_pembayaran', '/reconsil_cod'].includes(pathname);
 
   const hasPengaturanAccess = hasAccess('produk') || hasAccess('promo') || hasAccess('advertiser') || hasAccess('sumber_iklan') || hasAccess('hadiah') || hasAccess('bundling') || hasAccess('biaya_ongkir') || hasAccess('penambahan_ekspedisi') || hasAccess('penambahan_ongkir') || hasAccess('gudang') || hasAccess('pembayaran') || hasAccess('scalev');
 
@@ -207,7 +208,25 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
                 </div>
                 )}
 
-                {hasAccess('validasi_fat') && <NavItem href="/validasi_pembayaran" icon={CheckSquare} label="Validasi FAT" active={pathname === '/validasi_pembayaran'} />}
+                {hasAccess('validasi_fat') && (
+                <div>
+                    <button
+                      className={`sidebar__toggle ${(isValidasiActive || openSubmenu === 'validasi') ? 'sidebar__toggle--active' : ''}`}
+                      onClick={() => toggleSubmenu('validasi')}
+                    >
+                        <span className="sidebar__label-wrap">
+                            <CheckSquare className="sidebar__icon" size={18} strokeWidth={1.9} />
+                            <span className="sidebar__link-text">Validasi FAT</span>
+                        </span>
+                        <ChevronDown className={`sidebar__chevron ${(isValidasiActive || openSubmenu === 'validasi') ? 'sidebar__chevron--open' : ''}`} size={16} />
+                    </button>
+
+                    <div className={`sidebar__submenu ${(isValidasiActive || openSubmenu === 'validasi') ? '' : 'sidebar__submenu--closed'}`}>
+                        <SubmenuItem href="/validasi_pembayaran" label="Validasi FAT" active={pathname === '/validasi_pembayaran'} />
+                        <SubmenuItem href="/reconsil_cod" label="Data Reconsil COD" active={pathname === '/reconsil_cod'} />
+                    </div>
+                </div>
+                )}
                 {hasAccess('olahan') && <NavItem href="/olahan" icon={PackageOpen} label="Data Pesanan" active={isDataPesananActive} count={problemCount} />}
                 {hasAccess('olahan') && <NavItem href="/data_lengkap_customer" icon={PackageOpen} label="Data Lengkap" active={isDataLengkapActive} count={problemCount} />}
                 </div>

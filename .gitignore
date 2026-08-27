@@ -53,3 +53,9 @@ next-env.d.ts
 # stray leftover build cache (no real source)
 /pos-app
 .next-dev.log
+
+# real courier reconciliation sample files (contain real customer PII)
+/JNE Rekon.xlsx
+/JNT Rekon.xls
+/Ninja Rekons.xlsx
+/POS Rekon.xlsx
