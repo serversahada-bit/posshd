@@ -302,7 +302,7 @@ export async function POST(request: Request) {
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
               o.advertiser_name, o.ad_source,
               COALESCE(ca.receiver_name, c.name) as customer_name, COALESCE(ca.whatsapp_number, c.whatsapp_number) as whatsapp_number, c.email, COALESCE(ca.address, c.address) as address, c.subdistrict, ca.district as ca_district, ca.city as ca_city, ca.province as ca_province, c.age, c.complaint,
-              p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name, p.paid_at as validated_at,
+              p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
               w.code as warehouse_code,
@@ -327,7 +327,7 @@ export async function POST(request: Request) {
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
               ${ordersCsoAdvertiserSelect} as advertiser_name, ${ordersCsoAdSourceSelect} as ad_source,
               COALESCE(ca.receiver_name, c.name) as customer_name, COALESCE(ca.whatsapp_number, c.whatsapp_number) as whatsapp_number, c.email, COALESCE(ca.address, c.address) as address, c.subdistrict, ca.district as ca_district, ca.city as ca_city, ca.province as ca_province, c.age, c.complaint,
-              p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name, p.paid_at as validated_at,
+              p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
               w.code as warehouse_code,
@@ -352,7 +352,7 @@ export async function POST(request: Request) {
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
               ${ordersCrmAdvertiserSelect} as advertiser_name, ${ordersCrmAdSourceSelect} as ad_source,
               COALESCE(ca.receiver_name, c.name) as customer_name, COALESCE(ca.whatsapp_number, c.whatsapp_number) as whatsapp_number, c.email, COALESCE(ca.address, c.address) as address, c.subdistrict, ca.district as ca_district, ca.city as ca_city, ca.province as ca_province, c.age, c.complaint,
-              p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name, p.paid_at as validated_at,
+              p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
               w.code as warehouse_code,
@@ -417,8 +417,7 @@ export async function POST(request: Request) {
       'product_name_2nd', 'product_qty_2nd', 'product_price_2nd', 
       'product_name_3rd', 'product_qty_3rd', 'product_price_3rd', 
       'product_name_4rd', 'product_qty_4rd', 'product_price_4rd', 
-      'product_name_5rd', 'product_qty_5rd', 'product_price_5rd',
-      'ID Order Lama', 'Tanggal Validasi Pembayaran'
+      'product_name_5rd', 'product_qty_5rd', 'product_price_5rd'
     ];
 
     const headerRow = worksheet.addRow(headers);
@@ -642,14 +641,6 @@ export async function POST(request: Request) {
       }
 
       const customerNameMod = order.customer_name || '';
-      let oldOrderIdExport = '';
-      if (notesStr.includes('[RESEND]')) {
-        const match = notesStr.match(/\[OLD:(.*?)\]/);
-        if (match && match[1]) {
-          oldOrderIdExport = match[1].trim();
-        }
-      }
-      const tanggalValidasiPembayaran = formatExcelDateTime(order.validated_at);
 
       const rowData: any[] = [
         tanggalProses,
@@ -690,8 +681,6 @@ export async function POST(request: Request) {
           rowData.push('', '', '');
         }
       }
-
-      rowData.push(oldOrderIdExport, tanggalValidasiPembayaran);
 
       const outputRow = worksheet.addRow(rowData.map(toExcelValue));
       outputRow.getCell(2).value = noResiStr;
