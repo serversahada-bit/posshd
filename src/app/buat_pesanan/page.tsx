@@ -439,6 +439,8 @@ export default function BuatPesananPage() {
     e.preventDefault();
     if (!customerName) return Swal.fire('Error', 'Nama pelanggan wajib diisi', 'error');
     if (!whatsappNumber) return Swal.fire('Error', 'Nomor WA wajib diisi', 'error');
+    if (!advertiserName) return Swal.fire('Error', 'Nama Advertiser wajib dipilih', 'error');
+    if (!adSource) return Swal.fire('Error', 'Sumber Iklan wajib dipilih', 'error');
     if (cart.length === 0) return Swal.fire('Error', 'Keranjang kosong', 'error');
     if (!warehouseId || !courierName) return Swal.fire('Error', 'Gudang & Kurir wajib dipilih', 'error');
 
@@ -568,15 +570,15 @@ export default function BuatPesananPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Nama Advertiser</label>
-              <select value={advertiserName} onChange={e => setAdvertiserName(e.target.value)} className="w-full border border-slate-300 text-slate-800 text-sm rounded-lg outline-none focus:ring-1 focus:ring-purple-300 focus:border-purple-300 px-3 py-2.5 bg-white">
+              <label className="block text-xs font-medium text-slate-500 mb-1">Nama Advertiser <span className="text-red-500">*</span></label>
+              <select required value={advertiserName} onChange={e => setAdvertiserName(e.target.value)} className="w-full border border-slate-300 text-slate-800 text-sm rounded-lg outline-none focus:ring-1 focus:ring-purple-300 focus:border-purple-300 px-3 py-2.5 bg-white">
                 <option value="">-- Pilih Advertiser --</option>
                 {data?.advertisers.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Sumber Iklan</label>
-              <select value={adSource} onChange={e => setAdSource(e.target.value)} className="w-full border border-slate-300 text-slate-800 text-sm rounded-lg outline-none focus:ring-1 focus:ring-purple-300 focus:border-purple-300 px-3 py-2.5 bg-white">
+              <label className="block text-xs font-medium text-slate-500 mb-1">Sumber Iklan <span className="text-red-500">*</span></label>
+              <select required value={adSource} onChange={e => setAdSource(e.target.value)} className="w-full border border-slate-300 text-slate-800 text-sm rounded-lg outline-none focus:ring-1 focus:ring-purple-300 focus:border-purple-300 px-3 py-2.5 bg-white">
                 <option value="">-- Pilih Sumber Iklan --</option>
                 {data?.adSources.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
               </select>
