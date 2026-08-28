@@ -130,10 +130,15 @@ export async function POST(request: Request) {
     const mismatchCount = items.filter((item) => item.status === 'mismatch').length;
     const notFoundCount = items.filter((item) => item.status === 'not_found').length;
 
+    // The DB session's clock is Jakarta local time, but the driver reads it back
+    // labeled as UTC — using NOW() here would double-shift the displayed time.
+    // Pass Node's own (correctly UTC-aware) clock instead.
+    const eventAt = new Date();
+
     const reconciliationId = await prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(
         `INSERT INTO cod_reconciliations (courier_name, file_name, total_rows, matched_count, mismatch_count, not_found_count, created_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         courierName,
         file.name,
         items.length,
@@ -141,6 +146,7 @@ export async function POST(request: Request) {
         mismatchCount,
         notFoundCount,
         userId,
+        eventAt,
       );
       const [{ id: rawBatchId }] = await tx.$queryRawUnsafe<Array<{ id: number | bigint }>>('SELECT LAST_INSERT_ID() as id');
       const batchId = Number(rawBatchId);
@@ -148,7 +154,7 @@ export async function POST(request: Request) {
       for (const item of items) {
         await tx.$executeRawUnsafe(
           `INSERT INTO cod_reconciliation_items (reconciliation_id, tracking_number, reported_amount, expected_amount, difference, order_code, source_table, status, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           batchId,
           item.tracking_number,
           item.reported_amount.toString(),
@@ -157,6 +163,7 @@ export async function POST(request: Request) {
           item.order_code,
           item.source_table,
           item.status,
+          eventAt,
         );
       }
 

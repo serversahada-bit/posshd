@@ -52,7 +52,7 @@ type HistoryRow = {
 const formatCurrency = (value: string | number | null) => `Rp ${Number(value || 0).toLocaleString('id-ID')}`;
 
 const formatDate = (value: string) =>
-  new Date(value).toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  new Date(value).toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' });
 
 const statusBadge = (status: ReconciliationItem['status']) => {
   if (status === 'matched') return { label: 'Cocok', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
@@ -75,6 +75,7 @@ export default function ReconsilCodPage() {
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [couriers, setCouriers] = useState<{ id: number; courier_name: string }[]>([]);
+  const [loadingDetailId, setLoadingDetailId] = useState<number | null>(null);
 
   const fetchHistory = async () => {
     setLoadingHistory(true);
@@ -164,15 +165,21 @@ export default function ReconsilCodPage() {
   };
 
   const loadDetail = async (id: number) => {
+    setLoadingDetailId(id);
     try {
       const res = await fetch(`/api/reconsil_cod/${id}`, { cache: 'no-store' });
       const json = await res.json();
-      if (json.status === 'success') {
-        setResult(json.data);
-        setTimeout(() => document.getElementById('reconsil-result')?.scrollIntoView({ behavior: 'smooth' }), 100);
+      if (json.status !== 'success') {
+        Swal.fire('Gagal', json.message || 'Gagal memuat detail riwayat ini', 'error');
+        return;
       }
+      setResult(json.data);
+      setTimeout(() => document.getElementById('reconsil-result')?.scrollIntoView({ behavior: 'smooth' }), 100);
     } catch (error) {
       console.error(error);
+      Swal.fire('Gagal', 'Terjadi kesalahan saat memuat detail. Coba muat ulang halaman.', 'error');
+    } finally {
+      setLoadingDetailId(null);
     }
   };
 
@@ -402,8 +409,8 @@ export default function ReconsilCodPage() {
                     <td className="p-3 text-center font-semibold text-amber-600">{row.mismatch_count}</td>
                     <td className="p-3 text-center font-semibold text-red-500">{row.not_found_count}</td>
                     <td className="p-3 text-right whitespace-nowrap">
-                      <button type="button" onClick={() => void loadDetail(row.id)} className="text-xs font-bold text-purple-600 hover:text-purple-700 hover:underline mr-3">
-                        Lihat Detail
+                      <button type="button" onClick={() => void loadDetail(row.id)} disabled={loadingDetailId === row.id} className="text-xs font-bold text-purple-600 hover:text-purple-700 hover:underline mr-3 disabled:opacity-50 disabled:no-underline">
+                        {loadingDetailId === row.id ? 'Memuat...' : 'Lihat Detail'}
                       </button>
                       <button type="button" onClick={() => void handleDelete(row.id)} title="Hapus riwayat ini" className="inline-flex items-center text-red-500 hover:text-red-600">
                         <Trash2 className="w-4 h-4" />
