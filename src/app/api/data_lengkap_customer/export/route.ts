@@ -327,6 +327,7 @@ export async function POST(request: Request) {
               o.advertiser_name, o.ad_source,
               COALESCE(ca.receiver_name, c.name) as customer_name, COALESCE(ca.whatsapp_number, c.whatsapp_number) as whatsapp_number, c.email, COALESCE(ca.address, c.address) as address, c.subdistrict, ca.district as ca_district, ca.city as ca_city, ca.province as ca_province, c.age, c.complaint,
               p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name, p.paid_at as validated_at,
+              rec.reported_amount as reconsil_cod_amount,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
               w.code as warehouse_code,
@@ -340,7 +341,16 @@ export async function POST(request: Request) {
           LEFT JOIN shipments s ON o.id = s.order_id
           LEFT JOIN warehouses w ON COALESCE(s.warehouse_id, o.warehouse_id) = w.id
           LEFT JOIN users cu ON cu.id = o.created_by_user_id
-          
+          LEFT JOIN (
+            SELECT ci.tracking_number, ci.reported_amount
+            FROM cod_reconciliation_items ci
+            INNER JOIN (
+              SELECT tracking_number, MAX(id) AS max_id
+              FROM cod_reconciliation_items
+              GROUP BY tracking_number
+            ) latest ON latest.tracking_number = ci.tracking_number AND latest.max_id = ci.id
+          ) rec ON rec.tracking_number COLLATE utf8mb4_unicode_ci = s.tracking_number COLLATE utf8mb4_unicode_ci
+
           UNION ALL
           
           SELECT 
@@ -352,6 +362,7 @@ export async function POST(request: Request) {
               ${ordersCsoAdvertiserSelect} as advertiser_name, ${ordersCsoAdSourceSelect} as ad_source,
               COALESCE(ca.receiver_name, c.name) as customer_name, COALESCE(ca.whatsapp_number, c.whatsapp_number) as whatsapp_number, c.email, COALESCE(ca.address, c.address) as address, c.subdistrict, ca.district as ca_district, ca.city as ca_city, ca.province as ca_province, c.age, c.complaint,
               p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name, p.paid_at as validated_at,
+              rec.reported_amount as reconsil_cod_amount,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
               w.code as warehouse_code,
@@ -365,6 +376,15 @@ export async function POST(request: Request) {
           LEFT JOIN shipments_cso s ON o.id = s.order_id
           LEFT JOIN warehouses w ON COALESCE(s.warehouse_id, o.warehouse_id) = w.id
           LEFT JOIN users cu ON cu.id = o.created_by_user_id
+          LEFT JOIN (
+            SELECT ci.tracking_number, ci.reported_amount
+            FROM cod_reconciliation_items ci
+            INNER JOIN (
+              SELECT tracking_number, MAX(id) AS max_id
+              FROM cod_reconciliation_items
+              GROUP BY tracking_number
+            ) latest ON latest.tracking_number = ci.tracking_number AND latest.max_id = ci.id
+          ) rec ON rec.tracking_number COLLATE utf8mb4_unicode_ci = s.tracking_number COLLATE utf8mb4_unicode_ci
 
           UNION ALL
           
@@ -377,6 +397,7 @@ export async function POST(request: Request) {
               ${ordersCrmAdvertiserSelect} as advertiser_name, ${ordersCrmAdSourceSelect} as ad_source,
               COALESCE(ca.receiver_name, c.name) as customer_name, COALESCE(ca.whatsapp_number, c.whatsapp_number) as whatsapp_number, c.email, COALESCE(ca.address, c.address) as address, c.subdistrict, ca.district as ca_district, ca.city as ca_city, ca.province as ca_province, c.age, c.complaint,
               p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name, p.paid_at as validated_at,
+              rec.reported_amount as reconsil_cod_amount,
               s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
               w.warehouse_name,
               w.code as warehouse_code,
@@ -390,6 +411,15 @@ export async function POST(request: Request) {
           LEFT JOIN shipments_crm s ON o.id = s.order_id
           LEFT JOIN warehouses w ON COALESCE(s.warehouse_id, o.warehouse_id) = w.id
           LEFT JOIN users cu ON cu.id = o.created_by_user_id
+          LEFT JOIN (
+            SELECT ci.tracking_number, ci.reported_amount
+            FROM cod_reconciliation_items ci
+            INNER JOIN (
+              SELECT tracking_number, MAX(id) AS max_id
+              FROM cod_reconciliation_items
+              GROUP BY tracking_number
+            ) latest ON latest.tracking_number = ci.tracking_number AND latest.max_id = ci.id
+          ) rec ON rec.tracking_number COLLATE utf8mb4_unicode_ci = s.tracking_number COLLATE utf8mb4_unicode_ci
       ) as combined_orders
       WHERE 1=1 ${conditionQuery}
       ORDER BY created_at DESC
@@ -443,7 +473,7 @@ export async function POST(request: Request) {
       'product_name_5rd', 'product_qty_5rd', 'product_price_5rd',
       'Cek Cod Value', 'Cek Harga Barang', 'Gudang', 'CS', 'ADV', 'Ongkir', 'Fee', 'Diskon', 'RO', 'Promo',
       'Tanggal Order', 'Tanggal Inbound', 'Tanggal Pickup', 'Tanggal Pengiriman Pertama', 'status', 'Tanggal Tiba',
-      'Alasan RTS', 'CS/CRM', 'Reseller', 'SLA FF', 'Cek Resi', 'SLA NINJA', 'GUDANG', 'CUSTOMER PURCHASE', 'ID Order Lama', 'Tanggal Validasi Pembayaran'
+      'Alasan RTS', 'CS/CRM', 'Reseller', 'SLA FF', 'Cek Resi', 'SLA NINJA', 'GUDANG', 'CUSTOMER PURCHASE', 'ID Order Lama', 'Tanggal Validasi Pembayaran', 'Nominal Reconsil COD'
     ];
 
     const headerRow = worksheet.addRow(headers);
@@ -678,6 +708,10 @@ export async function POST(request: Request) {
       const reseller = order.order_type === 'reseller' ? 'Reseller' : '';
       const customerPurchase = Number(order.total_product_price || 0) + ongkirVal + fee - diskonVal;
       const tanggalValidasiPembayaran = formatExcelDateTime(order.validated_at);
+      const reconsilCodNominal =
+        order.reconsil_cod_amount !== null && order.reconsil_cod_amount !== undefined
+          ? Number(order.reconsil_cod_amount)
+          : '';
       let oldOrderIdExport = '';
       if (notesStr.includes('[RESEND]')) {
         const match = notesStr.match(/\[OLD:(.*?)\]/);
@@ -760,7 +794,8 @@ export async function POST(request: Request) {
         firstProductName,
         customerPurchase,
         oldOrderIdExport,
-        tanggalValidasiPembayaran
+        tanggalValidasiPembayaran,
+        reconsilCodNominal
       );
 
       const outputRow = worksheet.addRow(rowData.map(toExcelValue));
