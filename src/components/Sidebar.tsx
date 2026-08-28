@@ -144,7 +144,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
   const isPesananActive = ['/buat_pesanan', '/buat_pesanan_cso', '/buat_pesanan_crm', '/buat_pesanan_resend', '/orders'].includes(pathname);
   const isDataPesananActive = pathname === '/olahan';
   const isDataLengkapActive = pathname === '/data_lengkap_customer';
-  const isGudangActive = ['/setting_gudang', '/stok_produk', '/stok_hadiah'].includes(pathname);
+  const isGudangActive = ['/setting_gudang', '/stok_produk', '/stok_hadiah'].includes(pathname) || pathname.startsWith('/inventori');
   const isPembayaranActive = ['/setting_payment', '/setting_no_payment'].includes(pathname);
   const isValidasiActive = ['/validasi_pembayaran', '/reconsil_cod'].includes(pathname);
 
@@ -265,6 +265,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
                         <SubmenuItem href="/setting_gudang" label="Setting Gudang" active={pathname === '/setting_gudang'} />
                         <SubmenuItem href="/stok_produk" label="Stok Produk" active={pathname === '/stok_produk'} />
                         <SubmenuItem href="/stok_hadiah" label="Stok Hadiah" active={pathname === '/stok_hadiah'} />
+                        <SubmenuItem href="/inventori" label="Inventori" active={pathname === '/inventori'} />
                     </div>
                 </div>
                 )}

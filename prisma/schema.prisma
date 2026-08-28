@@ -180,6 +180,28 @@ model gifts {
   warehouse_gift_stock warehouse_gift_stock[]
 }
 
+model inventory_adjustments {
+  id               Int                        @id @default(autoincrement())
+  item_type        inventory_adjustments_item_type
+  item_id          Int
+  stock_type       inventory_adjustments_stock_type @default(good)
+  warehouse_id     Int
+  quantity_before  Int
+  quantity_change  Int
+  quantity_after   Int
+  reason           String?                    @db.VarChar(255)
+  invoice_note     String?                    @db.VarChar(255)
+  invoice_proof_url String?                   @db.VarChar(255)
+  created_by       Int?
+  created_at       DateTime                   @default(now()) @db.Timestamp(0)
+  warehouses       warehouses                 @relation(fields: [warehouse_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_inventory_adjustments_warehouse")
+  users            users?                     @relation(fields: [created_by], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "fk_inventory_adjustments_user")
+
+  @@index([item_type, item_id], map: "idx_inventory_adjustments_item")
+  @@index([warehouse_id], map: "fk_inventory_adjustments_warehouse")
+  @@index([created_by], map: "fk_inventory_adjustments_user")
+}
+
 model migrations {
   id       Int      @id @default(autoincrement())
   filename String   @unique(map: "filename") @db.VarChar(255)
@@ -756,12 +778,14 @@ model users {
   payments_crm           payments_crm[]
   crm_data_distributions crm_data_distributions[]
   cod_reconciliations    cod_reconciliations[]
+  inventory_adjustments  inventory_adjustments[]
 }
 
 model warehouse_gift_stock {
   gift_id      Int
   warehouse_id Int
   stock        Int        @default(0)
+  bad_stock    Int        @default(0)
   gifts        gifts      @relation(fields: [gift_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_wh_gift_stock_gift")
   warehouses   warehouses @relation(fields: [warehouse_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_wh_gift_stock_wh")
 
@@ -774,6 +798,7 @@ model warehouse_stock {
   product_id   Int
   warehouse_id Int
   stock        Int        @default(0)
+  bad_stock    Int        @default(0)
   created_at   DateTime   @default(now()) @db.Timestamp(0)
   updated_at   DateTime   @default(now()) @db.Timestamp(0)
   products     products   @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "warehouse_stock_ibfk_1")
@@ -798,8 +823,9 @@ model warehouses {
   image_url            String?                @db.VarChar(255)
   shipments            shipments[]
   shipments_cso        shipments_cso[]
-  warehouse_gift_stock warehouse_gift_stock[]
-  warehouse_stock      warehouse_stock[]
+  warehouse_gift_stock  warehouse_gift_stock[]
+  warehouse_stock       warehouse_stock[]
+  inventory_adjustments inventory_adjustments[]
 }
 
 enum advertisers_status {
@@ -864,6 +890,16 @@ enum discounts_status {
 enum product_bundles_status {
   active
   inactive
+}
+
+enum inventory_adjustments_item_type {
+  product
+  gift
+}
+
+enum inventory_adjustments_stock_type {
+  good
+  bad
 }
 
 enum cod_reconciliation_items_status {

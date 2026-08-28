@@ -27,26 +27,27 @@ export async function GET() {
         },
         orderBy: { gift_name: 'asc' },
       }),
-      prisma.warehouse_gift_stock.findMany({
-        select: {
-          gift_id: true,
-          warehouse_id: true,
-          stock: true,
-        },
-      }),
+      // bad_stock is a new column the generated Prisma client doesn't know about yet
+      // (client regeneration is blocked by a locked file on this machine), so read it raw.
+      prisma.$queryRawUnsafe<Array<{ gift_id: number; warehouse_id: number; stock: number; bad_stock: number }>>(
+        'SELECT gift_id, warehouse_id, stock, bad_stock FROM warehouse_gift_stock',
+      ),
     ]);
 
     const stockMap: Record<number, Record<number, number>> = {};
+    const badStockMap: Record<number, Record<number, number>> = {};
     stockRows.forEach((row) => {
-      if (!stockMap[row.gift_id]) {
-        stockMap[row.gift_id] = {};
-      }
+      if (!stockMap[row.gift_id]) stockMap[row.gift_id] = {};
+      if (!badStockMap[row.gift_id]) badStockMap[row.gift_id] = {};
       stockMap[row.gift_id][row.warehouse_id] = row.stock;
+      badStockMap[row.gift_id][row.warehouse_id] = row.bad_stock;
     });
 
     const data = gifts.map((gift) => {
       const warehouse_stocks = stockMap[gift.id] || {};
+      const warehouse_bad_stocks = badStockMap[gift.id] || {};
       const total_stock = Object.values(warehouse_stocks).reduce((sum, value) => sum + value, 0);
+      const total_bad_stock = Object.values(warehouse_bad_stocks).reduce((sum, value) => sum + value, 0);
 
       return {
         id: gift.id,
@@ -55,8 +56,12 @@ export async function GET() {
         price: Number(gift.price || 0),
         image_url: gift.image_url,
         total_stock,
+        total_bad_stock,
         warehouse_stocks: Object.fromEntries(
           Object.entries(warehouse_stocks).map(([warehouseId, stock]) => [String(warehouseId), stock])
+        ),
+        warehouse_bad_stocks: Object.fromEntries(
+          Object.entries(warehouse_bad_stocks).map(([warehouseId, stock]) => [String(warehouseId), stock])
         ),
       };
     });
@@ -85,34 +90,33 @@ export async function POST(request: NextRequest) {
 
     const giftId = Number(body?.id || 0);
     const stocks = body?.warehouse_stocks && typeof body.warehouse_stocks === 'object' ? body.warehouse_stocks : {};
+    const badStocks = body?.warehouse_bad_stocks && typeof body.warehouse_bad_stocks === 'object' ? body.warehouse_bad_stocks : {};
 
     if (!giftId) {
       return NextResponse.json({ success: false, message: 'ID hadiah wajib diisi.' }, { status: 400 });
     }
 
-    const rows = Object.entries(stocks)
-      .map(([warehouseId, stock]) => ({
-        gift_id: giftId,
-        warehouse_id: Number(warehouseId),
-        stock: Math.max(0, Number(stock) || 0),
-      }))
-      .filter((row) => row.warehouse_id > 0);
+    const warehouseIds = new Set<number>([
+      ...Object.keys(stocks).map(Number),
+      ...Object.keys(badStocks).map(Number),
+    ]);
 
     await prisma.$transaction(
-      rows.map((row) =>
-        prisma.warehouse_gift_stock.upsert({
-          where: {
-            gift_id_warehouse_id: {
-              gift_id: row.gift_id,
-              warehouse_id: row.warehouse_id,
-            },
-          },
-          create: row,
-          update: {
-            stock: row.stock,
-          },
+      Array.from(warehouseIds)
+        .filter((warehouseId) => warehouseId > 0)
+        .map((warehouseId) => {
+          const stock = Math.max(0, Number(stocks[warehouseId]) || 0);
+          const badStock = Math.max(0, Number(badStocks[warehouseId]) || 0);
+          return prisma.$executeRawUnsafe(
+            `INSERT INTO warehouse_gift_stock (gift_id, warehouse_id, stock, bad_stock)
+             VALUES (?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE stock = VALUES(stock), bad_stock = VALUES(bad_stock)`,
+            giftId,
+            warehouseId,
+            stock,
+            badStock,
+          );
         })
-      )
     );
 
     return NextResponse.json({ success: true, message: 'Stok hadiah di semua gudang berhasil diperbarui.' });

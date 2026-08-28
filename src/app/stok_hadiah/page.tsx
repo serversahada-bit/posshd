@@ -17,7 +17,9 @@ type GiftStockItem = {
   price: number;
   image_url: string | null;
   total_stock: number;
+  total_bad_stock: number;
   warehouse_stocks: Record<string, number>;
+  warehouse_bad_stocks: Record<string, number>;
 };
 
 type StockGiftsResponse = {
@@ -51,6 +53,7 @@ export default function StokHadiahPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedGift, setSelectedGift] = useState<GiftStockItem | null>(null);
   const [stockInputs, setStockInputs] = useState<Record<string, string>>({});
+  const [badStockInputs, setBadStockInputs] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let isMounted = true;
@@ -111,10 +114,13 @@ export default function StokHadiahPage() {
     setSelectedGift(gift);
 
     const nextInputs: Record<string, string> = {};
+    const nextBadInputs: Record<string, string> = {};
     warehouses.forEach((warehouse) => {
       nextInputs[String(warehouse.id)] = String(gift.warehouse_stocks[String(warehouse.id)] ?? 0);
+      nextBadInputs[String(warehouse.id)] = String(gift.warehouse_bad_stocks[String(warehouse.id)] ?? 0);
     });
     setStockInputs(nextInputs);
+    setBadStockInputs(nextBadInputs);
     setIsModalOpen(true);
   };
 
@@ -122,6 +128,7 @@ export default function StokHadiahPage() {
     setIsModalOpen(false);
     setSelectedGift(null);
     setStockInputs({});
+    setBadStockInputs({});
   };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -143,6 +150,7 @@ export default function StokHadiahPage() {
           action: 'update_stock',
           id: selectedGift.id,
           warehouse_stocks: stockInputs,
+          warehouse_bad_stocks: badStockInputs,
         }),
       });
 
@@ -179,20 +187,21 @@ export default function StokHadiahPage() {
                 <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-16">No</th>
                 <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Info Hadiah</th>
                 <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">SKU</th>
-                <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-32 text-center">Total Stok</th>
+                <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-32 text-center">Good Stock</th>
+                <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-32 text-center">Bad Stock</th>
                 <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-24 text-right">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-12 text-slate-400 text-sm">
+                  <td colSpan={6} className="text-center py-12 text-slate-400 text-sm">
                     Memuat data...
                   </td>
                 </tr>
               ) : gifts.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center text-slate-400 py-12">
+                  <td colSpan={6} className="text-center text-slate-400 py-12">
                     Belum ada hadiah aktif.
                   </td>
                 </tr>
@@ -228,6 +237,11 @@ export default function StokHadiahPage() {
                         {Number(row.total_stock).toLocaleString('id-ID')}
                       </span>
                     </td>
+                    <td className="p-4 text-center">
+                      <span className={`text-lg font-bold ${row.total_bad_stock > 0 ? 'text-red-500' : 'text-slate-300'}`}>
+                        {Number(row.total_bad_stock).toLocaleString('id-ID')}
+                      </span>
+                    </td>
                     <td className="p-4 text-right">
                       <button
                         onClick={() => openStockModal(row)}
@@ -249,7 +263,7 @@ export default function StokHadiahPage() {
         <div className="fixed inset-0 z-50" onClick={closeModal}>
           <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" />
           <div className="absolute inset-0 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden" onClick={(event) => event.stopPropagation()}>
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden" onClick={(event) => event.stopPropagation()}>
               <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
                 <h3 className="text-lg font-bold text-slate-800">Update Stok Per Gudang</h3>
                 <button type="button" onClick={closeModal} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors">
@@ -266,10 +280,14 @@ export default function StokHadiahPage() {
                 </div>
 
                 <div className="space-y-4 mb-6">
+                  <div className="flex items-center gap-3 text-xs font-semibold text-slate-400 uppercase tracking-wide pl-[calc(50%+0.75rem)]">
+                    <span className="flex-1 text-center">Good Stock</span>
+                    <span className="flex-1 text-center">Bad Stock</span>
+                  </div>
                   {warehouses.map((warehouse) => (
-                    <div key={warehouse.id} className="flex items-center justify-between">
+                    <div key={warehouse.id} className="flex items-center justify-between gap-3">
                       <label className="block text-sm font-semibold text-slate-700 w-1/2">{warehouse.warehouse_name}</label>
-                      <div className="w-1/2">
+                      <div className="flex-1 flex gap-3">
                         <input
                           type="number"
                           required
@@ -281,7 +299,20 @@ export default function StokHadiahPage() {
                               [String(warehouse.id)]: event.target.value,
                             }))
                           }
-                          className="w-full text-lg font-bold text-center h-12 border border-slate-300 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-1 focus:ring-purple-400 focus:border-purple-400"
+                          className="w-full text-lg font-bold text-center h-12 border border-slate-300 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-1 focus:ring-emerald-400 focus:border-emerald-400"
+                        />
+                        <input
+                          type="number"
+                          required
+                          min="0"
+                          value={badStockInputs[String(warehouse.id)] ?? '0'}
+                          onChange={(event) =>
+                            setBadStockInputs((prev) => ({
+                              ...prev,
+                              [String(warehouse.id)]: event.target.value,
+                            }))
+                          }
+                          className="w-full text-lg font-bold text-center h-12 border border-slate-300 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-1 focus:ring-red-400 focus:border-red-400"
                         />
                       </div>
                     </div>
