@@ -85,6 +85,7 @@ export default function BuatPesananPage() {
   const [complaint, setComplaint] = useState('');
   const [notes, setNotes] = useState('');
   const [oldOrderId, setOldOrderId] = useState('');
+  const [oldOrderIdError, setOldOrderIdError] = useState('');
   const [advertiserName, setAdvertiserName] = useState('');
   const [adSource, setAdSource] = useState('');
 
@@ -128,13 +129,18 @@ export default function BuatPesananPage() {
       });
   }, []);
 
-  const handleWaCheck = (wa: string) => {
+  const normalizeWhatsapp = (wa: string) => {
     let cleanWa = wa.replace(/[^0-9]/g, '');
     if (cleanWa.startsWith('08')) {
       cleanWa = '62' + cleanWa.substring(1);
     } else if (cleanWa.startsWith('8')) {
       cleanWa = '62' + cleanWa;
     }
+    return cleanWa;
+  };
+
+  const handleWaCheck = (wa: string) => {
+    const cleanWa = normalizeWhatsapp(wa);
     setWhatsappNumber(cleanWa);
 
     if (cleanWa.length < 10) {
@@ -158,8 +164,12 @@ export default function BuatPesananPage() {
           if (!email) setEmail(json.data.email || '');
           if (!address) setAddress(json.data.address || '');
           if (!subdistrict && json.data.subdistrict) {
-            setSubdistrict(json.data.subdistrict);
-            setDestSearch(json.data.subdistrict);
+            // Combine province+city+district (not just the bare kecamatan name) using the same
+            // no-space format as tarif_pengiriman.nama_tujuan, so shipping-rate lookup and the
+            // customer-search autofill above stay consistent.
+            const locStr = [json.data.province, json.data.city, json.data.subdistrict].filter(Boolean).join(',');
+            setSubdistrict(locStr);
+            setDestSearch(locStr);
           }
           if (!desa && json.data.desa) setDesa(json.data.desa);
         } else {
@@ -169,6 +179,17 @@ export default function BuatPesananPage() {
         setWaCheckMsg({ text: 'Gagal mengecek nomor.', type: 'text-red-500' });
       }
     }, 500);
+  };
+
+  const handleOldOrderIdChange = (value: string) => {
+    const normalized = value.toUpperCase();
+    if (/^[A-Z0-9]*$/.test(normalized)) {
+      setOldOrderId(normalized);
+      setOldOrderIdError('');
+      return;
+    }
+
+    setOldOrderIdError('ID Order hanya boleh berisi huruf dan angka.');
   };
 
   const handleCustSearch = (q: string) => {
@@ -436,6 +457,7 @@ export default function BuatPesananPage() {
     if (!warehouseId || !courierName) return Swal.fire('Error', 'Gudang & Kurir wajib dipilih', 'error');
     if (!paymentMethod) return Swal.fire('Error', 'Metode pembayaran tidak tersedia atau belum dipilih. Periksa status OOC dari Kurir.', 'error');
     if (paymentMethod === 'free' && !paymentProofFile) return Swal.fire('Error', 'Bukti approval wajib diupload untuk Free / Tanpa Pembayaran', 'error');
+    if (oldOrderId && oldOrderId.length !== 13) return Swal.fire('Error', 'ID Order Lama harus tepat 13 karakter', 'error');
 
     const fd = new FormData();
     fd.append('user_id', String(user?.id ?? 0));
@@ -557,10 +579,13 @@ export default function BuatPesananPage() {
                       onClick={() => {
                         setCustomerId(c.id.toString());
                         setCustomerName(c.name);
-                        setWhatsappNumber(c.whatsapp_number || '');
+                        setWhatsappNumber(normalizeWhatsapp(c.whatsapp_number || ''));
                         setEmail(c.email || '');
                         setAddress(c.address || '');
-                        const locStr = [c.province, c.city, c.subdistrict].filter(Boolean).join(', ');
+                        // No space after the comma — matches tarif_pengiriman.nama_tujuan's exact
+                        // format (see /penambahan_ongkir) so the shipping-rate lookup can hit the
+                        // fast exact match instead of always falling through to the LIKE fallback.
+                        const locStr = [c.province, c.city, c.subdistrict].filter(Boolean).join(',');
                         setSubdistrict(locStr || '');
                         setDestSearch(locStr || '');
                         setDesa(c.desa || '');
@@ -600,7 +625,12 @@ export default function BuatPesananPage() {
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-xs font-medium text-slate-500 mb-1">ID Order Lama (Opsional)</label>
-                  <input value={oldOrderId} onChange={e => setOldOrderId(e.target.value)} type="text" className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 focus:border-purple-300 outline-none text-sm placeholder:text-slate-400" placeholder="Contoh: 260804RMBJA03" />
+                  <input value={oldOrderId} onChange={e => handleOldOrderIdChange(e.target.value)} type="text" className={`w-full border rounded-lg px-4 py-2.5 focus:ring-1 outline-none text-sm placeholder:text-slate-400 ${oldOrderIdError ? 'border-red-400 bg-red-50 text-red-600 focus:ring-red-200 focus:border-red-400' : 'border-slate-300 focus:ring-purple-300 focus:border-purple-300'}`} placeholder="Contoh: 260804RMBJA03" />
+                  {oldOrderIdError ? (
+                    <p className="text-[11px] font-medium mt-1 text-red-500">{oldOrderIdError}</p>
+                  ) : (
+                    oldOrderId && <p className={`text-[11px] font-medium mt-1 ${oldOrderId.length === 13 ? 'text-emerald-600' : 'text-red-500'}`}>{oldOrderId.length === 13 ? 'Karakter Pas (13)' : `Tidak valid (${oldOrderId.length})`}</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Nama Advertiser</label>

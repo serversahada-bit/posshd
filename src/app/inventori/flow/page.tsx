@@ -16,6 +16,7 @@ type HistoryRow = {
   quantity_after: number;
   reason: string | null;
   invoice_note: string | null;
+  supplier_name: string | null;
   invoice_proof_url: string | null;
   created_at: string;
   created_by_name: string;
@@ -85,15 +86,16 @@ export default function InventoriFlowPage() {
                 <th className="p-3 font-semibold text-slate-600 text-center">Perubahan</th>
                 <th className="p-3 font-semibold text-slate-600 text-center">Sesudah</th>
                 <th className="p-3 font-semibold text-slate-600">Catatan</th>
+                <th className="p-3 font-semibold text-slate-600">Supplier</th>
                 <th className="p-3 font-semibold text-slate-600">Invoice</th>
                 <th className="p-3 font-semibold text-slate-600">Oleh</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loadingHistory ? (
-                <tr><td colSpan={9} className="text-center py-8 text-slate-400">Memuat...</td></tr>
+                <tr><td colSpan={10} className="text-center py-8 text-slate-400">Memuat...</td></tr>
               ) : history.length === 0 ? (
-                <tr><td colSpan={9} className="text-center py-8 text-slate-400">Belum ada pergerakan inventori.</td></tr>
+                <tr><td colSpan={10} className="text-center py-8 text-slate-400">Belum ada pergerakan inventori.</td></tr>
               ) : (
                 history.map((row) => (
                   <tr key={row.id} className="hover:bg-slate-50/50">
@@ -111,6 +113,7 @@ export default function InventoriFlowPage() {
                     </td>
                     <td className="p-3 text-center font-bold text-slate-700">{row.quantity_after}</td>
                     <td className="p-3 text-slate-500 text-xs">{row.reason || '-'}</td>
+                    <td className="p-3 text-slate-500 text-xs">{row.supplier_name || '-'}</td>
                     <td className="p-3 text-slate-500 text-xs">
                       {row.invoice_note ? <p className="mb-0.5">{row.invoice_note}</p> : null}
                       {row.invoice_proof_url ? (

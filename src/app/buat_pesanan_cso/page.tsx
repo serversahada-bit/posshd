@@ -155,8 +155,12 @@ export default function BuatPesananPage() {
           if (!email) setEmail(json.data.email || '');
           if (!address) setAddress(json.data.address || '');
           if (!subdistrict && json.data.subdistrict) {
-            setSubdistrict(json.data.subdistrict);
-            setDestSearch(json.data.subdistrict);
+            // Combine province+city+district (not just the bare kecamatan name) using the same
+            // no-space format as tarif_pengiriman.nama_tujuan, so shipping-rate lookup stays
+            // consistent with a manual destination pick.
+            const locStr = [json.data.province, json.data.city, json.data.subdistrict].filter(Boolean).join(',');
+            setSubdistrict(locStr);
+            setDestSearch(locStr);
           }
           if (!desa && json.data.desa) setDesa(json.data.desa);
         } else {

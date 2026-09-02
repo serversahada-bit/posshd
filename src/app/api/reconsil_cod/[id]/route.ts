@@ -32,7 +32,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
     const items = await prisma.$queryRawUnsafe<any[]>(
       `
-      SELECT id, tracking_number, reported_amount, expected_amount, difference, order_code, source_table, status
+      SELECT id, tracking_number, reported_amount, expected_amount, difference, order_code, source_table, status, disbursed_at
       FROM cod_reconciliation_items
       WHERE reconciliation_id = ?
       ORDER BY FIELD(status, 'mismatch', 'not_found', 'matched'), id ASC

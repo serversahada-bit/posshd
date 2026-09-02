@@ -11,6 +11,7 @@ import { splitRegionParts } from '@/lib/address';
 import { saveUploadBuffer } from '@/lib/uploadStorage';
 import { syncOrderTimestampColumns } from '@/lib/orderTimestamps';
 import { logOrderCreated } from '@/lib/orderStatusLog';
+import { resolveWeightMultiplier } from '@/lib/shippingWeight';
 
 export const dynamic = 'force-dynamic';
 
@@ -294,6 +295,7 @@ export async function POST(request: Request) {
       }
 
       if (courierName) {
+        const weightMultiplier = await resolveWeightMultiplier(tx, courierName, totalWeightGrams);
         await tx.shipments.create({
           data: {
             order_id: order.id,
@@ -302,6 +304,7 @@ export async function POST(request: Request) {
             courier_service: 'Reguler',
             shipping_cost: shippingCost,
             total_weight_gram: totalWeightGrams,
+            weight_multiplier: weightMultiplier,
             shipment_status: 'pending',
           }
         });

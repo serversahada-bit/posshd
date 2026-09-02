@@ -11,6 +11,7 @@ import { resolveOrderItem } from '@/lib/orderItems';
 import { upsertCustomerAddressSnapshot } from '@/lib/customerAddress';
 import { splitRegionParts } from '@/lib/address';
 import { saveUploadBuffer } from '@/lib/uploadStorage';
+import { resolveWeightMultiplier } from '@/lib/shippingWeight';
 
 export const dynamic = 'force-dynamic';
 
@@ -311,6 +312,7 @@ export async function POST(request: Request) {
 
       // 3. Create Shipment
       if (courierName) {
+        const weightMultiplier = await resolveWeightMultiplier(tx, courierName, totalWeightGrams);
         await tx.shipments_crm.create({
           data: {
             order_id: order.id,
@@ -319,6 +321,7 @@ export async function POST(request: Request) {
             courier_service: 'Reguler',
             shipping_cost: shippingCost,
             total_weight_gram: totalWeightGrams,
+            weight_multiplier: weightMultiplier,
             shipment_status: 'pending',
           }
         });

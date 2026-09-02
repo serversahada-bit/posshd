@@ -129,13 +129,18 @@ export default function BuatPesananPage() {
       });
   }, []);
 
-  const handleWaCheck = (wa: string) => {
+  const normalizeWhatsapp = (wa: string) => {
     let cleanWa = wa.replace(/[^0-9]/g, '');
     if (cleanWa.startsWith('08')) {
       cleanWa = '62' + cleanWa.substring(1);
     } else if (cleanWa.startsWith('8')) {
       cleanWa = '62' + cleanWa;
     }
+    return cleanWa;
+  };
+
+  const handleWaCheck = (wa: string) => {
+    const cleanWa = normalizeWhatsapp(wa);
     setWhatsappNumber(cleanWa);
 
     if (cleanWa.length < 10) {
@@ -159,8 +164,12 @@ export default function BuatPesananPage() {
           if (!email) setEmail(json.data.email || '');
           if (!address) setAddress(json.data.address || '');
           if (!subdistrict && json.data.subdistrict) {
-            setSubdistrict(json.data.subdistrict);
-            setDestSearch(json.data.subdistrict);
+            // Combine province+city+district (not just the bare kecamatan name) using the same
+            // no-space format as tarif_pengiriman.nama_tujuan, so shipping-rate lookup and the
+            // customer-search autofill above stay consistent.
+            const locStr = [json.data.province, json.data.city, json.data.subdistrict].filter(Boolean).join(',');
+            setSubdistrict(locStr);
+            setDestSearch(locStr);
           }
           if (!desa && json.data.desa) setDesa(json.data.desa);
         } else {
@@ -559,10 +568,13 @@ export default function BuatPesananPage() {
                       onClick={() => {
                         setCustomerId(c.id.toString());
                         setCustomerName(c.name);
-                        setWhatsappNumber(c.whatsapp_number || '');
+                        setWhatsappNumber(normalizeWhatsapp(c.whatsapp_number || ''));
                         setEmail(c.email || '');
                         setAddress(c.address || '');
-                        const locStr = [c.province, c.city, c.subdistrict].filter(Boolean).join(', ');
+                        // No space after the comma — matches tarif_pengiriman.nama_tujuan's exact
+                        // format (see /penambahan_ongkir) so the shipping-rate lookup can hit the
+                        // fast exact match instead of always falling through to the LIKE fallback.
+                        const locStr = [c.province, c.city, c.subdistrict].filter(Boolean).join(',');
                         setSubdistrict(locStr || '');
                         setDestSearch(locStr || '');
                         setDesa(c.desa || '');

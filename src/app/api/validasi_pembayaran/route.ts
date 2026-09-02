@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import prisma from '@/lib/db';
 import { emitEvent } from '@/lib/socket-server';
+import { hasColumn } from '@/lib/orderTimestamps';
+import { logOrderStatusChange } from '@/lib/orderStatusLog';
+
+// Orders still in one of these stages haven't shipped yet, so re-approving their payment after
+// an edit-triggered revalidation can safely restart them at Pending. Shipped/Completed/RTS are
+// deliberately excluded — those shouldn't be touched even if a payment somehow re-enters FAT.
+const REVALIDATION_RESTART_STATUSES = ['pending', 'processing', 'ready_to_ship', 'problem'];
 
 type UnvalidatedOrder = {
   order_id: bigint | number;
@@ -179,6 +186,8 @@ export async function POST(request: NextRequest) {
     if (action === 'approve') {
       let paymentMethodForApproval: string | null = null;
       let orderCode: string | null = null;
+      let orderIdForApproval: number | null = null;
+      let orderStatusForApproval: string | null = null;
 
       if (source_table === 'CRM') {
         const payment = await prisma.payments_crm.findUnique({
@@ -187,8 +196,10 @@ export async function POST(request: NextRequest) {
         });
         paymentMethodForApproval = payment?.payment_method ?? null;
         if (payment?.order_id) {
-          const order = await prisma.orders_crm.findUnique({ where: { id: payment.order_id }, select: { order_code: true } });
+          const order = await prisma.orders_crm.findUnique({ where: { id: payment.order_id }, select: { order_code: true, order_status: true } });
           orderCode = order?.order_code ?? null;
+          orderStatusForApproval = order?.order_status ?? null;
+          orderIdForApproval = payment.order_id;
         }
       } else if (source_table === 'CSO_AUTO') {
         const payment = await prisma.payments_cso.findUnique({
@@ -197,8 +208,10 @@ export async function POST(request: NextRequest) {
         });
         paymentMethodForApproval = payment?.payment_method ?? null;
         if (payment?.order_id) {
-          const order = await prisma.orders_cso.findUnique({ where: { id: payment.order_id }, select: { order_code: true } });
+          const order = await prisma.orders_cso.findUnique({ where: { id: payment.order_id }, select: { order_code: true, order_status: true } });
           orderCode = order?.order_code ?? null;
+          orderStatusForApproval = order?.order_status ?? null;
+          orderIdForApproval = payment.order_id;
         }
       } else {
         const payment = await prisma.payments.findUnique({
@@ -207,8 +220,10 @@ export async function POST(request: NextRequest) {
         });
         paymentMethodForApproval = payment?.payment_method ?? null;
         if (payment?.order_id) {
-          const order = await prisma.orders.findUnique({ where: { id: payment.order_id }, select: { order_code: true } });
+          const order = await prisma.orders.findUnique({ where: { id: payment.order_id }, select: { order_code: true, order_status: true } });
           orderCode = order?.order_code ?? null;
+          orderStatusForApproval = order?.order_status ?? null;
+          orderIdForApproval = payment.order_id;
         }
       }
 
@@ -245,6 +260,41 @@ export async function POST(request: NextRequest) {
           where: { id: pid },
           data: approvalData
         });
+      }
+
+      // Bank transfer / Free orders that got sent back to FAT by an edit (see requiresFatRevalidation
+      // in /api/olahan/edit) never had their order_status touched at edit time — this is where they
+      // actually restart at Pending, now that the re-review is resolved. A fresh order that's still
+      // legitimately Pending is a no-op here. Shipped/Completed/RTS are left alone entirely.
+      //
+      // pending_at is deliberately NOT touched here (unlike the edit-time bump) — the export's
+      // "Timestamp" column should stay pinned to when the order was last *edited*, not when FAT
+      // got around to re-approving it; paid_at (set above) already covers "Keterangan Ninja" /
+      // "Tanggal Validasi Pembayaran" moving to the approval moment. processing_at *does* get
+      // cleared, same as a fresh Pending order, since it should stay empty until the order is
+      // actually moved to Processing again.
+      const isBankTransferOrFreeApproval = paymentMethodForApproval === 'bank_transfer' || paymentMethodForApproval === 'free';
+      if (isBankTransferOrFreeApproval && orderIdForApproval && orderStatusForApproval && REVALIDATION_RESTART_STATUSES.includes(orderStatusForApproval)) {
+        const ordersTable = source_table === 'CRM' ? 'orders_crm' : source_table === 'CSO_AUTO' ? 'orders_cso' : 'orders';
+        const setClauses = ["order_status = 'pending'", 'updated_at = ?'];
+        const params: unknown[] = [approvalData.paid_at];
+        if (await hasColumn(prisma, ordersTable, 'processing_at')) {
+          setClauses.push('processing_at = NULL');
+        }
+        params.push(orderIdForApproval);
+        await prisma.$executeRawUnsafe(`UPDATE ${ordersTable} SET ${setClauses.join(', ')} WHERE id = ?`, ...params);
+
+        if (orderCode) {
+          await logOrderStatusChange(prisma, {
+            userId,
+            orderCode,
+            source: source_table,
+            fromStatus: orderStatusForApproval,
+            toStatus: 'pending',
+            ipAddress,
+            reason: 'Status diulang ke pending setelah Approve FAT',
+          });
+        }
       }
 
       const approveOrderMarker = orderCode ? ` (Order: ${orderCode}, Source: ${source_table})` : '';

@@ -8,6 +8,7 @@ import { logOrderStatusChange } from '@/lib/orderStatusLog';
 import { upsertCustomerAddressSnapshot } from '@/lib/customerAddress';
 import { splitRegionParts } from '@/lib/address';
 import { saveUploadBuffer } from '@/lib/uploadStorage';
+import { resolveWeightMultiplier } from '@/lib/shippingWeight';
 
 export const dynamic = 'force-dynamic';
 
@@ -420,7 +421,6 @@ export async function GET(request: Request) {
         orderBy: {
           created_at: 'desc',
         },
-        take: 10,
       }),
       prisma.$queryRawUnsafe<any[]>(`SELECT pbi.bundle_id, pbi.product_id, pbi.qty, p.product_name, p.image_url FROM product_bundle_items pbi LEFT JOIN products p ON p.id = pbi.product_id`),
       prisma.shipping_weight_settings.findFirst(),
@@ -541,7 +541,7 @@ export async function PUT(request: Request) {
     const items = (payload.items || []) as ItemInput[];
     if (!items.length) return NextResponse.json({ status: 'error', message: 'Pesanan harus memiliki minimal satu produk atau hadiah' }, { status: 400 });
 
-    await prisma.$transaction(async (tx) => {
+    const transactionResult = await prisma.$transaction(async (tx) => {
       const oldOrders = await tx.$queryRawUnsafe<any[]>(`SELECT warehouse_id, customer_id, customer_address_id, order_status, order_code, total_product_price, product_discount, shipping_cost, additional_shipping_cost, shipping_discount, other_fee, total_payment, courier_id, promo_id, notes FROM ${t.orders} WHERE id=? FOR UPDATE`, orderId);
       const old = oldOrders[0];
       if (!old) throw new Error('Pesanan tidak ditemukan');
@@ -590,7 +590,22 @@ export async function PUT(request: Request) {
       if (courierId) courier = (await tx.$queryRawUnsafe<any[]>(`SELECT * FROM couriers WHERE id=?`, courierId))[0];
       const warehouseId = payload.warehouse_id ? Number(payload.warehouse_id) : null;
       const roCount = Number(payload.ro_count || 0);
-      const nextOrderStatus = 'pending';
+
+      // Send the order back to "pending" for re-review while it's still in the
+      // pending/processing/ready_to_ship/problem stage — otherwise an order that's already
+      // Shipped/Completed/RTS would get silently reverted to Pending (wiping processing_at and
+      // the export's shipped/completed date columns) just because someone fixed a typo.
+      // Bank transfer / Free orders are the exception: they don't flip back to Pending here —
+      // that happens later, when FAT actually re-approves the payment (see requiresFatRevalidation
+      // below and the matching order_status bump in /api/validasi_pembayaran) — since the order
+      // shouldn't look "restarted" until the re-validation is actually resolved.
+      const paymentMethodInput = String(payload.payment_method || '').toLowerCase();
+      const oldTotalPayment = Number(old.total_payment ?? 0);
+      const newTotalPayment = Number(payload.total_payment);
+      const totalChanged = oldTotalPayment !== newTotalPayment;
+      const isBankTransferOrFree = paymentMethodInput === 'bank_transfer' || paymentMethodInput === 'free';
+      const wasEarlyStage = ['pending', 'processing', 'ready_to_ship', 'problem'].includes(old.order_status);
+      const nextOrderStatus = !isBankTransferOrFree && wasEarlyStage ? 'pending' : old.order_status;
 
       if (source === 'CSO') {
         await tx.$executeRawUnsafe(`UPDATE ${t.orders} SET order_code=?, order_status=?,total_product_price=?,product_discount=?,shipping_cost=?,additional_shipping_cost=?,shipping_discount=?,other_fee=?,total_payment=?,notes=?,warehouse_id=?,courier_id=?,promo_id=?,advertiser_name=?,ad_source=?,updated_at=? WHERE id=?`, nextOrderCode, nextOrderStatus, Number(payload.total_product_price), Number(payload.product_discount), Number(payload.shipping_cost), Number(payload.other_fee), Number(payload.shipping_discount || 0), Number(payload.manual_fee_cod), Number(payload.total_payment), payload.notes || null, warehouseId, courierId, payload.promo_id || null, payload.advertiser_name || null, payload.ad_source || null, updatedAt, orderId);
@@ -623,29 +638,25 @@ export async function PUT(request: Request) {
 
       const pay = await tx.$queryRawUnsafe<any[]>(`SELECT id, payment_status, payment_method, bank_name, account_name, fat_proof_url FROM ${t.payments} WHERE order_id=?`, orderId);
 
-      // Hitung apakah total_payment berubah (untuk mendeteksi perlu validasi FAT ulang)
-      // total_payment ada di tabel orders (old.total_payment), bukan di payments
-      const oldTotalPayment = Number(old.total_payment ?? 0);
-      const newTotalPayment = Number(payload.total_payment);
+      // totalChanged already computed above (used to decide order_status too)
       const oldPaymentStatus = pay.length ? String(pay[0].payment_status || '') : '';
       const wasRejectedByFat = oldPaymentStatus === 'rejected';
-      const totalChanged = oldTotalPayment !== newTotalPayment;
       const giftItemsChanged = oldGiftSignature !== newGiftSignature;
       const nonGiftItemsChanged = oldNonGiftSignature !== newNonGiftSignature;
-      const giftOnlyAutoPricingChange =
-        giftItemsChanged &&
-        !nonGiftItemsChanged &&
-        Number(payload.total_product_price) === Number(old.total_product_price ?? 0) &&
-        Number(payload.product_discount) === Number(old.product_discount ?? 0) &&
-        Number(payload.manual_fee_cod) === Number(old.other_fee ?? 0) &&
-        Number(payload.shipping_discount || 0) === Number(old.shipping_discount ?? 0) &&
-        Number(payload.other_fee) === Number(old.additional_shipping_cost ?? 0);
+      const itemsChanged = giftItemsChanged || nonGiftItemsChanged;
 
-      // Jika pembayaran pernah ditolak FAT atau total transfer berubah, kirim ulang ke antrean validasi FAT.
-      const resolvedPaymentStatus =
-        payload.payment_method === 'bank_transfer' && (wasRejectedByFat || (totalChanged && oldPaymentStatus !== 'unpaid' && !giftOnlyAutoPricingChange))
-          ? 'waiting_confirmation'
-          : payload.payment_status;
+      // Kirim ulang ke antrean validasi FAT kalau: pembayaran pernah ditolak FAT, ATAU total
+      // transfer berubah, ATAU barang pesanan berubah (termasuk hadiah) — barang yang berubah
+      // berarti apa yang dikirim ke pembeli sudah beda dari yang divalidasi sebelumnya, jadi
+      // perlu direview ulang walau nominalnya somehow tetap sama. Ini menimpa pilihan admin di
+      // form kalau admin sempat memilih status lain (mis. "Paid"). Guard oldPaymentStatus !==
+      // 'unpaid' untuk totalChanged/itemsChanged: kalau belum pernah divalidasi sama sekali,
+      // ini bukan "revalidasi", biarkan alur validasi FAT normal yang menangani.
+      const requiresFatRevalidation =
+        isBankTransferOrFree &&
+        (wasRejectedByFat || (oldPaymentStatus !== 'unpaid' && (totalChanged || itemsChanged)));
+      const resolvedPaymentStatus = requiresFatRevalidation ? 'waiting_confirmation' : payload.payment_status;
+      const paymentStatusOverridden = requiresFatRevalidation && payload.payment_status !== 'waiting_confirmation';
 
       if (wasRejectedByFat && payload.payment_method === 'bank_transfer' && !proofUrl) {
         throw new Error('Pesanan ini sebelumnya ditolak FAT. Upload bukti transfer baru sebelum menyimpan ulang.');
@@ -656,6 +667,14 @@ export async function PUT(request: Request) {
         else await tx.$executeRawUnsafe(`UPDATE ${t.payments} SET payment_status=?,reject_reason=CASE WHEN ?='waiting_confirmation' THEN NULL ELSE reject_reason END,payment_method=?,bank_name=?,account_name=?,account_number=?,fat_proof_url=? WHERE order_id=?`, resolvedPaymentStatus, resolvedPaymentStatus, payload.payment_method, bankName, accountName, accountNumber, payload.id_reff || null, orderId);
       } else {
         await tx.$executeRawUnsafe(`INSERT INTO ${t.payments}(order_id,payment_method,payment_status,payment_proof_url,bank_name,account_name,account_number,fat_proof_url) VALUES(?,?,?,?,?,?,?,?)`, orderId, payload.payment_method, proofUrl ? 'waiting_confirmation' : resolvedPaymentStatus, proofUrl, bankName, accountName, accountNumber, payload.id_reff || null);
+      }
+
+      // Bank transfer / Free re-entering FAT keeps its order_status untouched (see nextOrderStatus
+      // above), but the export's "Timestamp" column should still reflect this as a fresh "entered
+      // pending" moment — bump pending_at directly, independent of order_status, since
+      // syncOrderTimestampColumns only writes it when the status itself becomes 'pending'.
+      if (requiresFatRevalidation && (await hasColumn(t.orders, 'pending_at'))) {
+        await tx.$executeRawUnsafe(`UPDATE ${t.orders} SET pending_at = ? WHERE id = ?`, updatedAt, orderId);
       }
 
       let totalWeightGrams = 0;
@@ -710,11 +729,12 @@ export async function PUT(request: Request) {
       }
 
       if (courier) {
+        const weightMultiplier = await resolveWeightMultiplier(tx, courier.courier_name, totalWeightGrams);
         const ship = await tx.$queryRawUnsafe<any[]>(`SELECT id FROM ${t.shipments} WHERE order_id=?`, orderId);
         if (ship.length) {
-          await tx.$executeRawUnsafe(`UPDATE ${t.shipments} SET courier_name=?,courier_service=?,warehouse_id=?,shipping_cost=?,total_weight_gram=? WHERE order_id=?`, courier.courier_name, courier.service_type || 'Reguler', warehouseId, Number(payload.shipping_cost), totalWeightGrams, orderId);
+          await tx.$executeRawUnsafe(`UPDATE ${t.shipments} SET courier_name=?,courier_service=?,warehouse_id=?,shipping_cost=?,total_weight_gram=?,weight_multiplier=? WHERE order_id=?`, courier.courier_name, courier.service_type || 'Reguler', warehouseId, Number(payload.shipping_cost), totalWeightGrams, weightMultiplier, orderId);
         } else {
-          await tx.$executeRawUnsafe(`INSERT INTO ${t.shipments}(order_id,warehouse_id,courier_name,courier_service,shipping_cost,total_weight_gram) VALUES(?,?,?,?,?,?)`, orderId, warehouseId, courier.courier_name, courier.service_type || 'Reguler', Number(payload.shipping_cost), totalWeightGrams);
+          await tx.$executeRawUnsafe(`INSERT INTO ${t.shipments}(order_id,warehouse_id,courier_name,courier_service,shipping_cost,total_weight_gram,weight_multiplier) VALUES(?,?,?,?,?,?,?)`, orderId, warehouseId, courier.courier_name, courier.service_type || 'Reguler', Number(payload.shipping_cost), totalWeightGrams, weightMultiplier);
         }
       }
 
@@ -750,9 +770,15 @@ export async function PUT(request: Request) {
           },
         });
       }
+
+      return { paymentStatusOverridden };
     }, { timeout: 30000 });
 
-    return NextResponse.json({ status: 'success', message: 'Semua perubahan pesanan berhasil disimpan' });
+    return NextResponse.json({
+      status: 'success',
+      message: 'Semua perubahan pesanan berhasil disimpan',
+      paymentStatusOverridden: transactionResult.paymentStatusOverridden,
+    });
   } catch (error: any) {
     console.error('PUT olahan edit:', error);
     return NextResponse.json({ status: 'error', message: error.message || 'Gagal menyimpan perubahan' }, { status: 500 });

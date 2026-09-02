@@ -11,6 +11,7 @@ type PreviewData = {
   totalRows: number;
   suggestedResiColumn: number;
   suggestedAmountColumn: number;
+  suggestedDisbursedAtColumn: number;
 };
 
 type ReconciliationItem = {
@@ -22,6 +23,7 @@ type ReconciliationItem = {
   order_code: string | null;
   source_table: string | null;
   status: 'matched' | 'mismatch' | 'not_found';
+  disbursed_at: string | null;
 };
 
 type ReconciliationResult = {
@@ -54,6 +56,9 @@ const formatCurrency = (value: string | number | null) => `Rp ${Number(value || 
 const formatDate = (value: string) =>
   new Date(value).toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' });
 
+const formatDateOnly = (value: string | null) =>
+  value ? new Date(value).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Jakarta' }) : '-';
+
 const statusBadge = (status: ReconciliationItem['status']) => {
   if (status === 'matched') return { label: 'Cocok', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
   if (status === 'mismatch') return { label: 'Selisih', className: 'bg-amber-50 text-amber-700 border-amber-200' };
@@ -68,6 +73,8 @@ export default function ReconsilCodPage() {
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [resiColumn, setResiColumn] = useState(0);
   const [amountColumn, setAmountColumn] = useState(0);
+  const [disbursedAtColumn, setDisbursedAtColumn] = useState(0);
+  const [mappingApplied, setMappingApplied] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [processing, setProcessing] = useState(false);
 
@@ -106,18 +113,22 @@ export default function ReconsilCodPage() {
     setPreview(null);
     setResiColumn(0);
     setAmountColumn(0);
+    setDisbursedAtColumn(0);
+    setMappingApplied(false);
   };
 
   const handleFileChange = async (selected: File | null) => {
     setFile(selected);
     setPreview(null);
     setResult(null);
+    setMappingApplied(false);
     if (!selected) return;
 
     setLoadingPreview(true);
     try {
       const fd = new FormData();
       fd.append('file', selected);
+      if (courierName) fd.append('courier_name', courierName);
       const res = await fetch('/api/reconsil_cod/preview', { method: 'POST', body: fd });
       const json = await res.json();
       if (json.status !== 'success') {
@@ -127,10 +138,88 @@ export default function ReconsilCodPage() {
       setPreview(json);
       setResiColumn(json.suggestedResiColumn || 1);
       setAmountColumn(json.suggestedAmountColumn || 2);
+      setDisbursedAtColumn(json.suggestedDisbursedAtColumn || 0);
+      // If a courier is already picked and the server matched a remembered mapping, the
+      // suggestion above already reflects it — surface that in the UI.
+      if (courierName) {
+        void checkMappingApplied(courierName, json.headers, json.suggestedResiColumn, json.suggestedAmountColumn, json.suggestedDisbursedAtColumn);
+      }
     } catch (error) {
       Swal.fire('Gagal', 'Terjadi kesalahan saat membaca file', 'error');
     } finally {
       setLoadingPreview(false);
+    }
+  };
+
+  // Header-name match, mirrors findColumnByHeaderName on the server — used purely to decide
+  // whether to show the "kolom otomatis dari mapping tersimpan" hint.
+  const normalizeHeaderLocal = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const findHeaderIndex = (headers: string[], target: string) => {
+    const normalizedTarget = normalizeHeaderLocal(target || '');
+    if (!normalizedTarget) return 0;
+    const index = headers.findIndex((header) => normalizeHeaderLocal(header) === normalizedTarget);
+    return index === -1 ? 0 : index + 1;
+  };
+
+  const checkMappingApplied = async (
+    courier: string,
+    headers: string[],
+    currentResiColumn: number,
+    currentAmountColumn: number,
+    currentDisbursedAtColumn: number,
+  ) => {
+    try {
+      const res = await fetch(`/api/reconsil_cod/column-mapping?courier_name=${encodeURIComponent(courier)}`);
+      const json = await res.json();
+      const mapping = json.mapping as { resi_header: string; amount_header: string; disbursed_at_header: string | null } | null;
+      if (!mapping) {
+        setMappingApplied(false);
+        return;
+      }
+      const resiMatch = findHeaderIndex(headers, mapping.resi_header);
+      const amountMatch = findHeaderIndex(headers, mapping.amount_header);
+      const disbursedAtMatch = mapping.disbursed_at_header ? findHeaderIndex(headers, mapping.disbursed_at_header) : 0;
+      setMappingApplied(
+        resiMatch === currentResiColumn &&
+        amountMatch === currentAmountColumn &&
+        disbursedAtMatch === currentDisbursedAtColumn &&
+        resiMatch > 0 && amountMatch > 0,
+      );
+    } catch {
+      setMappingApplied(false);
+    }
+  };
+
+  const handleCourierChange = async (nextCourier: string) => {
+    setCourierName(nextCourier);
+    if (!preview || !nextCourier) {
+      setMappingApplied(false);
+      return;
+    }
+
+    // File is already parsed — re-apply a remembered mapping for the newly picked courier
+    // without re-uploading/re-parsing the file.
+    try {
+      const res = await fetch(`/api/reconsil_cod/column-mapping?courier_name=${encodeURIComponent(nextCourier)}`);
+      const json = await res.json();
+      const mapping = json.mapping as { resi_header: string; amount_header: string; disbursed_at_header: string | null } | null;
+      if (!mapping) {
+        setMappingApplied(false);
+        return;
+      }
+      const resiMatch = findHeaderIndex(preview.headers, mapping.resi_header);
+      const amountMatch = findHeaderIndex(preview.headers, mapping.amount_header);
+      const disbursedAtMatch = mapping.disbursed_at_header ? findHeaderIndex(preview.headers, mapping.disbursed_at_header) : 0;
+      if (resiMatch && amountMatch) {
+        setResiColumn(resiMatch);
+        setAmountColumn(amountMatch);
+        setDisbursedAtColumn(disbursedAtMatch);
+        setMappingApplied(true);
+      } else {
+        setMappingApplied(false);
+      }
+    } catch {
+      setMappingApplied(false);
     }
   };
 
@@ -143,6 +232,12 @@ export default function ReconsilCodPage() {
       fd.append('file', file);
       fd.append('resi_column', String(resiColumn));
       fd.append('amount_column', String(amountColumn));
+      if (disbursedAtColumn) fd.append('disbursed_at_column', String(disbursedAtColumn));
+      if (preview) {
+        fd.append('resi_header', preview.headers[resiColumn - 1] || '');
+        fd.append('amount_header', preview.headers[amountColumn - 1] || '');
+        if (disbursedAtColumn) fd.append('disbursed_at_header', preview.headers[disbursedAtColumn - 1] || '');
+      }
       fd.append('courier_name', courierName);
       fd.append('user_id', String(user?.id ?? 0));
 
@@ -235,7 +330,7 @@ export default function ReconsilCodPage() {
             <label className="block text-xs font-medium text-slate-500 mb-1">Nama Kurir (Opsional)</label>
             <select
               value={courierName}
-              onChange={(event) => setCourierName(event.target.value)}
+              onChange={(event) => void handleCourierChange(event.target.value)}
               className="w-full border border-slate-300 text-slate-800 text-sm rounded-lg outline-none focus:ring-1 focus:ring-purple-300 px-3 py-2.5 bg-white"
             >
               <option value="">-- Pilih Kurir --</option>
@@ -245,6 +340,13 @@ export default function ReconsilCodPage() {
             </select>
           </div>
         </div>
+
+        {mappingApplied && (
+          <div className="flex items-center gap-2 text-xs font-medium text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+            <HelpCircle className="w-3.5 h-3.5 shrink-0" />
+            Kolom otomatis dipilih berdasarkan mapping tersimpan untuk kurir {courierName}.
+          </div>
+        )}
 
         {loadingPreview && (
           <div className="flex items-center gap-2 text-sm text-slate-500">
@@ -259,12 +361,12 @@ export default function ReconsilCodPage() {
               <p>Format laporan tiap kurir berbeda-beda. Pilih kolom mana yang berisi <b>No Resi</b> dan <b>Nominal COD</b> berdasarkan preview di bawah.</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs font-medium text-slate-500 mb-1">Kolom No Resi</label>
                 <select
                   value={resiColumn}
-                  onChange={(event) => setResiColumn(Number(event.target.value))}
+                  onChange={(event) => { setResiColumn(Number(event.target.value)); setMappingApplied(false); }}
                   className="w-full border border-slate-300 text-slate-800 text-sm rounded-lg outline-none focus:ring-1 focus:ring-purple-300 px-3 py-2.5 bg-white"
                 >
                   {preview.headers.map((header, index) => (
@@ -276,9 +378,22 @@ export default function ReconsilCodPage() {
                 <label className="block text-xs font-medium text-slate-500 mb-1">Kolom Nominal COD</label>
                 <select
                   value={amountColumn}
-                  onChange={(event) => setAmountColumn(Number(event.target.value))}
+                  onChange={(event) => { setAmountColumn(Number(event.target.value)); setMappingApplied(false); }}
                   className="w-full border border-slate-300 text-slate-800 text-sm rounded-lg outline-none focus:ring-1 focus:ring-purple-300 px-3 py-2.5 bg-white"
                 >
+                  {preview.headers.map((header, index) => (
+                    <option key={index} value={index + 1}>{header}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Kolom Tanggal Cair (Opsional)</label>
+                <select
+                  value={disbursedAtColumn}
+                  onChange={(event) => { setDisbursedAtColumn(Number(event.target.value)); setMappingApplied(false); }}
+                  className="w-full border border-slate-300 text-slate-800 text-sm rounded-lg outline-none focus:ring-1 focus:ring-purple-300 px-3 py-2.5 bg-white"
+                >
+                  <option value={0}>-- Tidak Ada --</option>
                   {preview.headers.map((header, index) => (
                     <option key={index} value={index + 1}>{header}</option>
                   ))}
@@ -291,7 +406,7 @@ export default function ReconsilCodPage() {
                 <thead className="bg-slate-50">
                   <tr>
                     {preview.headers.map((header, index) => (
-                      <th key={index} className={`p-2 font-semibold whitespace-nowrap ${index + 1 === resiColumn || index + 1 === amountColumn ? 'text-purple-600' : 'text-slate-500'}`}>{header}</th>
+                      <th key={index} className={`p-2 font-semibold whitespace-nowrap ${index + 1 === resiColumn || index + 1 === amountColumn || index + 1 === disbursedAtColumn ? 'text-purple-600' : 'text-slate-500'}`}>{header}</th>
                     ))}
                   </tr>
                 </thead>
@@ -345,6 +460,7 @@ export default function ReconsilCodPage() {
                   <th className="p-3 font-semibold text-slate-600 text-right">Nominal Laporan</th>
                   <th className="p-3 font-semibold text-slate-600 text-right">Total Pembayaran</th>
                   <th className="p-3 font-semibold text-slate-600 text-right">Selisih</th>
+                  <th className="p-3 font-semibold text-slate-600">Tanggal Cair</th>
                   <th className="p-3 font-semibold text-slate-600">Status</th>
                 </tr>
               </thead>
@@ -360,6 +476,7 @@ export default function ReconsilCodPage() {
                       <td className={`p-3 text-right font-bold ${item.difference && item.difference !== '0' ? 'text-red-600' : 'text-slate-400'}`}>
                         {item.difference !== null ? formatCurrency(item.difference) : '-'}
                       </td>
+                      <td className="p-3 text-slate-600 whitespace-nowrap">{formatDateOnly(item.disbursed_at)}</td>
                       <td className="p-3">
                         <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold border ${badge.className}`}>{badge.label}</span>
                       </td>

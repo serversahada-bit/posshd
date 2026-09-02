@@ -20,8 +20,8 @@ export async function POST(request: NextRequest) {
       where: { order_code: orderCode },
       include: {
         customer_addresses: true,
-        shipments: { orderBy: { id: 'desc' }, take: 1 },
-        payments: { orderBy: { id: 'desc' }, take: 1 },
+        shipments: true,
+        payments: true,
       },
     });
 
@@ -46,8 +46,8 @@ export async function POST(request: NextRequest) {
     const baseUrl = getScalevBaseUrl(scalevSetting.url);
 
     const addr = order.customer_addresses;
-    const shipment = order.shipments[0];
-    const payment = order.payments[0];
+    const shipment = order.shipments;
+    const payment = order.payments;
     const warehouse = order.warehouse_id
       ? await prisma.warehouses.findUnique({ where: { id: order.warehouse_id }, select: { code: true } })
       : null;

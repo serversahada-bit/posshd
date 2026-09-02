@@ -102,16 +102,18 @@ export async function POST(request: Request) {
         }
 
         if (order.sourceTable === 'orders') {
-          if (statusBaru) {
+          // Skip entirely when the imported status matches what's already stored — otherwise a
+          // re-uploaded/overlapping status file keeps bumping pending_at/processing_at forward
+          // for orders whose status never actually changed, drifting their "entered pending"
+          // timestamp away from when the order was really placed (breaks Excel export dates).
+          if (statusBaru && statusBaru !== order.order_status) {
             const eventAt = new Date();
             await tx.orders.update({
               where: { id: order.orderId },
               data: { order_status: statusBaru as orders_order_status, updated_at: eventAt },
             });
             await syncOrderTimestampColumns(tx, 'orders', order.orderId, statusBaru, eventAt);
-            if (order.order_status !== statusBaru) {
-              await logOrderStatusChange(tx, { userId, orderCode: order.order_code, source: 'CSO', fromStatus: order.order_status, toStatus: statusBaru, reason: 'Import status' });
-            }
+            await logOrderStatusChange(tx, { userId, orderCode: order.order_code, source: 'CSO', fromStatus: order.order_status, toStatus: statusBaru, reason: 'Import status' });
           }
 
           if (noResi) {
@@ -135,16 +137,14 @@ export async function POST(request: Request) {
             }
           }
         } else if (order.sourceTable === 'orders_cso') {
-          if (statusBaru) {
+          if (statusBaru && statusBaru !== order.order_status) {
             const eventAt = new Date();
             await tx.orders_cso.update({
               where: { id: order.orderId },
               data: { order_status: statusBaru as orders_cso_order_status, updated_at: eventAt },
             });
             await syncOrderTimestampColumns(tx, 'orders_cso', order.orderId, statusBaru, eventAt);
-            if (order.order_status !== statusBaru) {
-              await logOrderStatusChange(tx, { userId, orderCode: order.order_code, source: 'CSO_AUTO', fromStatus: order.order_status, toStatus: statusBaru, reason: 'Import status' });
-            }
+            await logOrderStatusChange(tx, { userId, orderCode: order.order_code, source: 'CSO_AUTO', fromStatus: order.order_status, toStatus: statusBaru, reason: 'Import status' });
           }
 
           if (noResi) {
@@ -168,16 +168,14 @@ export async function POST(request: Request) {
             }
           }
         } else {
-          if (statusBaru) {
+          if (statusBaru && statusBaru !== order.order_status) {
             const eventAt = new Date();
             await tx.orders_crm.update({
               where: { id: order.orderId },
               data: { order_status: statusBaru as orders_crm_order_status, updated_at: eventAt },
             });
             await syncOrderTimestampColumns(tx, 'orders_crm', order.orderId, statusBaru, eventAt);
-            if (order.order_status !== statusBaru) {
-              await logOrderStatusChange(tx, { userId, orderCode: order.order_code, source: 'CRM', fromStatus: order.order_status, toStatus: statusBaru, reason: 'Import status' });
-            }
+            await logOrderStatusChange(tx, { userId, orderCode: order.order_code, source: 'CRM', fromStatus: order.order_status, toStatus: statusBaru, reason: 'Import status' });
           }
 
           if (noResi) {

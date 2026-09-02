@@ -22,6 +22,7 @@ export async function GET() {
         a.quantity_after,
         a.reason,
         a.invoice_note,
+        a.supplier_name,
         a.invoice_proof_url,
         a.created_at,
         COALESCE(NULLIF(u.name, ''), NULLIF(u.email, ''), 'System') as created_by_name

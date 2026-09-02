@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import ExcelJS from 'exceljs';
 import { splitRegionParts } from '@/lib/address';
+import { calculateShippingMultiplier, normalizeCourierKey } from '@/lib/shippingWeight';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,33 +35,6 @@ const toSafeString = (value: unknown): string => {
 };
 
 const formatContactNumber = (value: unknown): string => toSafeString(value).replace(/^\+/, '');
-
-const normalizeCourierKey = (value: unknown): string =>
-  String(value || '').trim().replace(/\s+/g, ' ').toUpperCase();
-
-const calculateShippingMultiplier = (
-  totalWeightGrams: number,
-  courierName: string,
-  shippingWeightSettings: { base_weight_gram?: number | null; extra_weight_step_gram?: number | null; rounding_tolerance_gram?: number | null } | null,
-  courierWeightRules: Record<string, { base_weight_gram?: number | null; extra_weight_step_gram?: number | null; rounding_tolerance_gram?: number | null }>,
-) => {
-  const rule = courierWeightRules[normalizeCourierKey(courierName)] || {};
-  const settings = shippingWeightSettings || {};
-  const baseWeight = Math.max(Number(rule.base_weight_gram ?? settings.base_weight_gram ?? 1000) || 1000, 1);
-  const extraStep = Math.max(Number(rule.extra_weight_step_gram ?? settings.extra_weight_step_gram ?? 1000) || 1000, 1);
-  const tolerance = Math.max(Number(rule.rounding_tolerance_gram ?? settings.rounding_tolerance_gram ?? 0) || 0, 0);
-  const total = Math.max(Number(totalWeightGrams) || 0, 0);
-
-  if (total <= baseWeight) {
-    return 1;
-  }
-
-  const excessWeight = total - baseWeight;
-  const fullSteps = Math.floor(excessWeight / extraStep);
-  const remainder = excessWeight % extraStep;
-
-  return 1 + fullSteps + (remainder > tolerance ? 1 : 0);
-};
 
 const toExcelValue = (value: unknown): string | number | Date => {
   if (value instanceof Date) {
@@ -245,21 +219,27 @@ export async function POST(request: Request) {
               ELSE NULL
           END`;
 
-    // For bank-transfer orders that have cleared Validasi Pembayaran, "Order Masuk" should
+    // For bank-transfer/free orders that have cleared Validasi Pembayaran, "Order Masuk" should
     // reflect the moment payment was validated (p.paid_at) rather than when the order was
-    // first submitted — matches the same rule applied in /api/olahan.
+    // first submitted — matches the same rule applied in /api/olahan. Both methods go through
+    // the same FAT approval step, so both get the same paid_at preference.
     const withPaidAtPreference = (expr: string) =>
-      `CASE WHEN p.payment_method = 'bank_transfer' AND p.paid_at IS NOT NULL THEN p.paid_at ELSE ${expr} END`;
+      `CASE WHEN p.payment_method IN ('bank_transfer', 'free') AND p.paid_at IS NOT NULL THEN p.paid_at ELSE ${expr} END`;
 
-    const ordersPendingAtSelect = withPaidAtPreference(ordersHasPendingAt ? 'COALESCE(o.pending_at, o.created_at)' : pendingFallback);
+    // Base "entered pending" expression, before the paid_at preference below is layered on top.
+    const ordersRawPendingAtSelect = ordersHasPendingAt ? 'COALESCE(o.pending_at, o.created_at)' : pendingFallback;
+    const ordersCsoRawPendingAtSelect = ordersCsoHasPendingAt ? 'COALESCE(o.pending_at, o.created_at)' : pendingFallback;
+    const ordersCrmRawPendingAtSelect = ordersCrmHasPendingAt ? 'COALESCE(o.pending_at, o.created_at)' : pendingFallback;
+
+    const ordersPendingAtSelect = withPaidAtPreference(ordersRawPendingAtSelect);
     const ordersProcessingAtSelect = ordersHasProcessingAt ? 'o.processing_at' : processingFallback;
     const ordersCsoAdvertiserSelect = ordersCsoHasAdvertiser ? 'o.advertiser_name' : 'NULL';
     const ordersCsoAdSourceSelect = ordersCsoHasAdSource ? 'o.ad_source' : 'NULL';
-    const ordersCsoPendingAtSelect = withPaidAtPreference(ordersCsoHasPendingAt ? 'COALESCE(o.pending_at, o.created_at)' : pendingFallback);
+    const ordersCsoPendingAtSelect = withPaidAtPreference(ordersCsoRawPendingAtSelect);
     const ordersCsoProcessingAtSelect = ordersCsoHasProcessingAt ? 'o.processing_at' : processingFallback;
     const ordersCrmAdvertiserSelect = ordersCrmHasAdvertiser ? 'o.advertiser_name' : 'NULL';
     const ordersCrmAdSourceSelect = ordersCrmHasAdSource ? 'o.ad_source' : 'NULL';
-    const ordersCrmPendingAtSelect = withPaidAtPreference(ordersCrmHasPendingAt ? 'COALESCE(o.pending_at, o.created_at)' : pendingFallback);
+    const ordersCrmPendingAtSelect = withPaidAtPreference(ordersCrmRawPendingAtSelect);
     const ordersCrmProcessingAtSelect = ordersCrmHasProcessingAt ? 'o.processing_at' : processingFallback;
 
     let conditionQuery = '';
@@ -319,7 +299,7 @@ export async function POST(request: Request) {
     const rawQuery = `
       SELECT * FROM (
           SELECT 
-              o.id, o.order_code, o.customer_id, ${ordersPendingAtSelect} as created_at, o.updated_at,
+              o.id, o.order_code, o.customer_id, ${ordersPendingAtSelect} as created_at, ${ordersRawPendingAtSelect} as latest_pending_at, o.updated_at,
               ${ordersProcessingAtSelect} as processing_at,
               o.total_product_price, o.shipping_cost, o.total_payment, o.product_discount, o.other_fee,
               o.additional_shipping_cost,
@@ -328,12 +308,14 @@ export async function POST(request: Request) {
               COALESCE(ca.receiver_name, c.name) as customer_name, COALESCE(ca.whatsapp_number, c.whatsapp_number) as whatsapp_number, c.email, COALESCE(ca.address, c.address) as address, c.subdistrict, ca.district as ca_district, ca.city as ca_city, ca.province as ca_province, c.age, c.complaint,
               p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name, p.paid_at as validated_at,
               rec.reported_amount as reconsil_cod_amount,
-              s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
+              rec.uploaded_at as reconsil_uploaded_at,
+              rec.disbursed_at as reconsil_disbursed_at,
+              s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram, s.weight_multiplier,
               w.warehouse_name,
               w.code as warehouse_code,
               0 as is_ro, 0 as ro_count,
               'CSO' as source_table,
-              COALESCE(NULLIF(cu.email, ''), NULLIF(cu.name, ''), (SELECT COALESCE(NULLIF(u.email, ''), NULLIF(u.name, '')) FROM activity_logs a JOIN users u ON a.user_id = u.id WHERE a.details LIKE CONCAT('%(Order: ', o.order_code, ',%') OR a.details LIKE CONCAT('%(Order: ', o.order_code, ')%') ORDER BY a.id DESC LIMIT 1), 'User') as creator_name
+              COALESCE(NULLIF(cu.email, ''), NULLIF(cu.name, ''), (SELECT COALESCE(NULLIF(u.email, ''), NULLIF(u.name, '')) FROM activity_logs a JOIN users u ON a.user_id = u.id WHERE a.action = 'Create Pesanan' AND a.details LIKE CONCAT('Order: ', o.order_code, ' | Source:%') ORDER BY a.id ASC LIMIT 1), 'User') as creator_name
           FROM orders o
           LEFT JOIN customers c ON o.customer_id = c.id
           LEFT JOIN customer_addresses ca ON ca.id = o.customer_address_id
@@ -342,7 +324,7 @@ export async function POST(request: Request) {
           LEFT JOIN warehouses w ON COALESCE(s.warehouse_id, o.warehouse_id) = w.id
           LEFT JOIN users cu ON cu.id = o.created_by_user_id
           LEFT JOIN (
-            SELECT ci.tracking_number, ci.reported_amount
+            SELECT ci.tracking_number, ci.reported_amount, ci.created_at as uploaded_at, ci.disbursed_at
             FROM cod_reconciliation_items ci
             INNER JOIN (
               SELECT tracking_number, MAX(id) AS max_id
@@ -354,7 +336,7 @@ export async function POST(request: Request) {
           UNION ALL
           
           SELECT 
-              o.id, o.order_code, o.customer_id, ${ordersCsoPendingAtSelect} as created_at, o.updated_at,
+              o.id, o.order_code, o.customer_id, ${ordersCsoPendingAtSelect} as created_at, ${ordersCsoRawPendingAtSelect} as latest_pending_at, o.updated_at,
               ${ordersCsoProcessingAtSelect} as processing_at,
               o.total_product_price, o.shipping_cost, o.total_payment, o.product_discount, o.other_fee,
               o.additional_shipping_cost,
@@ -363,12 +345,14 @@ export async function POST(request: Request) {
               COALESCE(ca.receiver_name, c.name) as customer_name, COALESCE(ca.whatsapp_number, c.whatsapp_number) as whatsapp_number, c.email, COALESCE(ca.address, c.address) as address, c.subdistrict, ca.district as ca_district, ca.city as ca_city, ca.province as ca_province, c.age, c.complaint,
               p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name, p.paid_at as validated_at,
               rec.reported_amount as reconsil_cod_amount,
-              s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
+              rec.uploaded_at as reconsil_uploaded_at,
+              rec.disbursed_at as reconsil_disbursed_at,
+              s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram, s.weight_multiplier,
               w.warehouse_name,
               w.code as warehouse_code,
               COALESCE(o.is_ro, 0) as is_ro, COALESCE(o.ro_count, 0) as ro_count,
               'CSO_AUTO' as source_table,
-              COALESCE(NULLIF(cu.email, ''), NULLIF(cu.name, ''), (SELECT COALESCE(NULLIF(u.email, ''), NULLIF(u.name, '')) FROM activity_logs a JOIN users u ON a.user_id = u.id WHERE a.details LIKE CONCAT('%(Order: ', o.order_code, ',%') OR a.details LIKE CONCAT('%(Order: ', o.order_code, ')%') ORDER BY a.id DESC LIMIT 1), 'User') as creator_name
+              COALESCE(NULLIF(cu.email, ''), NULLIF(cu.name, ''), (SELECT COALESCE(NULLIF(u.email, ''), NULLIF(u.name, '')) FROM activity_logs a JOIN users u ON a.user_id = u.id WHERE a.action = 'Create Pesanan' AND a.details LIKE CONCAT('Order: ', o.order_code, ' | Source:%') ORDER BY a.id ASC LIMIT 1), 'User') as creator_name
           FROM orders_cso o
           LEFT JOIN customers c ON o.customer_id = c.id
           LEFT JOIN customer_addresses ca ON ca.id = o.customer_address_id
@@ -377,7 +361,7 @@ export async function POST(request: Request) {
           LEFT JOIN warehouses w ON COALESCE(s.warehouse_id, o.warehouse_id) = w.id
           LEFT JOIN users cu ON cu.id = o.created_by_user_id
           LEFT JOIN (
-            SELECT ci.tracking_number, ci.reported_amount
+            SELECT ci.tracking_number, ci.reported_amount, ci.created_at as uploaded_at, ci.disbursed_at
             FROM cod_reconciliation_items ci
             INNER JOIN (
               SELECT tracking_number, MAX(id) AS max_id
@@ -389,7 +373,7 @@ export async function POST(request: Request) {
           UNION ALL
           
           SELECT 
-              o.id, o.order_code, o.customer_id, ${ordersCrmPendingAtSelect} as created_at, o.updated_at,
+              o.id, o.order_code, o.customer_id, ${ordersCrmPendingAtSelect} as created_at, ${ordersCrmRawPendingAtSelect} as latest_pending_at, o.updated_at,
               ${ordersCrmProcessingAtSelect} as processing_at,
               o.total_product_price, o.shipping_cost, o.total_payment, o.product_discount, o.other_fee,
               o.additional_shipping_cost,
@@ -398,12 +382,14 @@ export async function POST(request: Request) {
               COALESCE(ca.receiver_name, c.name) as customer_name, COALESCE(ca.whatsapp_number, c.whatsapp_number) as whatsapp_number, c.email, COALESCE(ca.address, c.address) as address, c.subdistrict, ca.district as ca_district, ca.city as ca_city, ca.province as ca_province, c.age, c.complaint,
               p.payment_method, p.payment_status, p.fat_proof_url as id_reff, p.bank_name as payment_bank_name, p.paid_at as validated_at,
               rec.reported_amount as reconsil_cod_amount,
-              s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram,
+              rec.uploaded_at as reconsil_uploaded_at,
+              rec.disbursed_at as reconsil_disbursed_at,
+              s.courier_name, s.courier_service, s.tracking_number, s.total_weight_gram, s.weight_multiplier,
               w.warehouse_name,
               w.code as warehouse_code,
               COALESCE(o.is_ro, 0) as is_ro, COALESCE(o.ro_count, 0) as ro_count,
               'CRM' as source_table,
-              COALESCE(NULLIF(cu.email, ''), NULLIF(cu.name, ''), (SELECT COALESCE(NULLIF(u.email, ''), NULLIF(u.name, '')) FROM activity_logs a JOIN users u ON a.user_id = u.id WHERE a.details LIKE CONCAT('%(Order: ', o.order_code, ',%') OR a.details LIKE CONCAT('%(Order: ', o.order_code, ')%') ORDER BY a.id DESC LIMIT 1), 'User') as creator_name
+              COALESCE(NULLIF(cu.email, ''), NULLIF(cu.name, ''), (SELECT COALESCE(NULLIF(u.email, ''), NULLIF(u.name, '')) FROM activity_logs a JOIN users u ON a.user_id = u.id WHERE a.action = 'Create Pesanan' AND a.details LIKE CONCAT('Order: ', o.order_code, ' | Source:%') ORDER BY a.id ASC LIMIT 1), 'User') as creator_name
           FROM orders_crm o
           LEFT JOIN customers c ON o.customer_id = c.id
           LEFT JOIN customer_addresses ca ON ca.id = o.customer_address_id
@@ -412,7 +398,7 @@ export async function POST(request: Request) {
           LEFT JOIN warehouses w ON COALESCE(s.warehouse_id, o.warehouse_id) = w.id
           LEFT JOIN users cu ON cu.id = o.created_by_user_id
           LEFT JOIN (
-            SELECT ci.tracking_number, ci.reported_amount
+            SELECT ci.tracking_number, ci.reported_amount, ci.created_at as uploaded_at, ci.disbursed_at
             FROM cod_reconciliation_items ci
             INNER JOIN (
               SELECT tracking_number, MAX(id) AS max_id
@@ -473,7 +459,7 @@ export async function POST(request: Request) {
       'product_name_5rd', 'product_qty_5rd', 'product_price_5rd',
       'Cek Cod Value', 'Cek Harga Barang', 'Gudang', 'CS', 'ADV', 'Ongkir', 'Fee', 'Diskon', 'RO', 'Promo',
       'Tanggal Order', 'Tanggal Inbound', 'Tanggal Pickup', 'Tanggal Pengiriman Pertama', 'status', 'Tanggal Tiba',
-      'Alasan RTS', 'CS/CRM', 'Reseller', 'SLA FF', 'Cek Resi', 'SLA NINJA', 'GUDANG', 'CUSTOMER PURCHASE', 'ID Order Lama', 'Tanggal Validasi Pembayaran', 'Nominal Reconsil COD'
+      'Alasan RTS', 'CS/CRM', 'Reseller', 'SLA FF', 'Cek Resi', 'SLA NINJA', 'GUDANG', 'CUSTOMER PURCHASE', 'ID Order Lama', 'Tanggal Validasi Pembayaran', 'Nominal Reconsil COD', 'Tanggal Cair'
     ];
 
     const headerRow = worksheet.addRow(headers);
@@ -581,7 +567,12 @@ export async function POST(request: Request) {
       }
 
       const weightGram = Number(order.total_weight_gram || 0);
-      const berat = calculateShippingMultiplier(weightGram, order.courier_name || '', shippingWeightSettings, courierWeightRules);
+      // Prefer the multiplier frozen on the shipment at create/edit time — falls back to a live
+      // recompute only for older rows saved before weight_multiplier existed, since those never
+      // had a stored value to begin with.
+      const berat = order.weight_multiplier != null
+        ? Number(order.weight_multiplier)
+        : calculateShippingMultiplier(weightGram, order.courier_name || '', shippingWeightSettings, courierWeightRules);
 
       let codValue: string | number = '';
       if (order.payment_method === 'cod' || order.payment_method === 'no_payment') {
@@ -591,7 +582,12 @@ export async function POST(request: Request) {
       const processedAt = order.processing_at || order.created_at || null;
       const orderMasukAt = order.created_at || null;
       const tanggalProses = formatExcelDateTime(processedAt);
-      const timestamp = formatExcelDateTime(orderMasukAt);
+      // Timestamp follows the order's latest "entered pending" moment (pending_at, or created_at
+      // for an order that's never left pending) — same signal as "Tanggal Proses", but without the
+      // paid_at preference: it's meant to move the moment the order re-enters pending (e.g. edited
+      // while still processing/ready_to_ship/problem), ahead of Keterangan Ninja/Tanggal Validasi
+      // Pembayaran, which only move once FAT actually re-approves the payment.
+      const timestamp = formatExcelDateTime(order.latest_pending_at || order.created_at || null);
       const noResiStr = order.tracking_number ? toSafeString(order.tracking_number) : '';
 
       const usia = order.age != null ? toExcelValue(order.age) : '-';
@@ -707,11 +703,23 @@ export async function POST(request: Request) {
       const alasanRts = order.order_status === 'rts' ? (notesStr || '') : '';
       const reseller = order.order_type === 'reseller' ? 'Reseller' : '';
       const customerPurchase = Number(order.total_product_price || 0) + ongkirVal + fee - diskonVal;
-      const tanggalValidasiPembayaran = formatExcelDateTime(order.validated_at);
-      const reconsilCodNominal =
-        order.reconsil_cod_amount !== null && order.reconsil_cod_amount !== undefined
-          ? Number(order.reconsil_cod_amount)
-          : '';
+      // COD orders never go through Validasi Pembayaran (no paid_at) — for those, use the
+      // Reconsil COD upload date as the proxy "validation" moment instead.
+      const tanggalValidasiPembayaran = order.payment_method === 'cod'
+        ? formatExcelDateTime(order.reconsil_uploaded_at)
+        : formatExcelDateTime(order.validated_at);
+      // Bank transfer / Free orders never go through the COD courier settlement, so they'll
+      // never get a reconciliation match under normal circumstances — fall back to the order's
+      // own total_payment for those. A match (rare: reused/typo'd tracking number) still wins.
+      const hasReconsilMatch = order.reconsil_cod_amount !== null && order.reconsil_cod_amount !== undefined;
+      const isBankTransferOrFree = order.payment_method === 'bank_transfer' || order.payment_method === 'free';
+      const reconsilCodNominal = hasReconsilMatch
+        ? Number(order.reconsil_cod_amount)
+        : (isBankTransferOrFree ? toSafeNumber(order.total_payment) : '');
+      // From the courier report's own "Tanggal Cair" column (per-tracking-number disbursement
+      // date, picked by the admin at upload time on /reconsil_cod) — blank when that courier's
+      // report didn't have the column, or this tracking number has no reconciliation match yet.
+      const tanggalCair = formatExcelDate(order.reconsil_disbursed_at);
       let oldOrderIdExport = '';
       if (notesStr.includes('[RESEND]')) {
         const match = notesStr.match(/\[OLD:(.*?)\]/);
@@ -795,7 +803,8 @@ export async function POST(request: Request) {
         customerPurchase,
         oldOrderIdExport,
         tanggalValidasiPembayaran,
-        reconsilCodNominal
+        reconsilCodNominal,
+        tanggalCair
       );
 
       const outputRow = worksheet.addRow(rowData.map(toExcelValue));

@@ -73,11 +73,24 @@ model cod_reconciliation_items {
   order_code          String?              @db.VarChar(50)
   source_table        String?              @db.VarChar(20)
   status              cod_reconciliation_items_status @default(not_found)
+  disbursed_at        DateTime?            @db.Date
   created_at          DateTime             @default(now()) @db.Timestamp(0)
   cod_reconciliations cod_reconciliations  @relation(fields: [reconciliation_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_cod_reconciliation_items_batch")
 
   @@index([reconciliation_id], map: "fk_cod_reconciliation_items_batch")
   @@index([tracking_number], map: "idx_cod_reconciliation_items_tracking")
+}
+
+// Remembers which report column held the tracking number / COD amount for a given courier,
+// so the next upload for that same courier pre-selects the right columns instead of relying
+// purely on the generic keyword guess (which can misfire on unusual header names).
+model cod_courier_column_mappings {
+  id                  Int      @id @default(autoincrement())
+  courier_name        String   @unique(map: "uq_cod_courier_column_mappings_courier") @db.VarChar(100)
+  resi_header         String   @db.VarChar(255)
+  amount_header       String   @db.VarChar(255)
+  disbursed_at_header String?  @db.VarChar(255)
+  updated_at          DateTime @default(now()) @db.Timestamp(0)
 }
 
 model crm_data_distributions {
@@ -191,6 +204,7 @@ model inventory_adjustments {
   quantity_after   Int
   reason           String?                    @db.VarChar(255)
   invoice_note     String?                    @db.VarChar(255)
+  supplier_name    String?                    @db.VarChar(150)
   invoice_proof_url String?                   @db.VarChar(255)
   created_by       Int?
   created_at       DateTime                   @default(now()) @db.Timestamp(0)
@@ -367,8 +381,8 @@ model orders {
   users                    users?               @relation(fields: [created_by_user_id], references: [id], onUpdate: Restrict, map: "fk_orders_creator_user")
   customers                customers            @relation(fields: [customer_id], references: [id], onUpdate: Restrict, map: "fk_orders_customer")
   customer_addresses       customer_addresses?  @relation(fields: [customer_address_id], references: [id], onUpdate: Restrict, map: "fk_orders_customer_address")
-  payments                 payments[]
-  shipments                shipments[]
+  payments                 payments?
+  shipments                shipments?
 
   @@index([customer_id], map: "fk_orders_customer")
   @@index([customer_address_id], map: "fk_orders_customer_address")
@@ -404,6 +418,8 @@ model orders_crm {
   is_ro                    Boolean?                 @default(false)
   ro_count                 Int?                     @default(0)
   users                    users?                   @relation(fields: [created_by_user_id], references: [id], onUpdate: Restrict, map: "fk_orders_crm_creator_user")
+  payments_crm             payments_crm?
+  shipments_crm            shipments_crm?
 
   @@index([customer_id], map: "fk_orders_customer")
   @@index([customer_address_id], map: "fk_orders_customer_address")
@@ -444,8 +460,8 @@ model orders_cso {
   users                    users?                   @relation(fields: [created_by_user_id], references: [id], onUpdate: Restrict, map: "fk_orders_cso_creator_user")
   customers                customers                @relation(fields: [customer_id], references: [id], onUpdate: Restrict, map: "fk_orders_cso_customer")
   customer_addresses       customer_addresses?      @relation(fields: [customer_address_id], references: [id], onUpdate: Restrict, map: "fk_orders_cso_customer_address")
-  payments_cso             payments_cso[]
-  shipments_cso            shipments_cso[]
+  payments_cso             payments_cso?
+  shipments_cso            shipments_cso?
 
   @@index([customer_id], map: "fk_orders_cso_customer")
   @@index([customer_address_id], map: "fk_orders_cso_customer_address")
@@ -508,6 +524,7 @@ model payments {
   orders            orders                   @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_payments_order")
   validator         users?                   @relation(fields: [validated_by], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "fk_payments_validated_by")
 
+  @@unique([order_id], map: "uq_payments_order_id")
   @@index([order_id], map: "fk_payments_order")
   @@index([validated_by], map: "fk_payments_validated_by")
 }
@@ -527,8 +544,10 @@ model payments_crm {
   paid_at           DateTime?                    @db.DateTime(0)
   created_at        DateTime                     @default(now()) @db.Timestamp(0)
   updated_at        DateTime                     @default(now()) @db.Timestamp(0)
+  orders_crm        orders_crm                   @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_payments_crm_order")
   validator         users?                       @relation(fields: [validated_by], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "fk_payments_crm_validated_by")
 
+  @@unique([order_id], map: "uq_payments_crm_order_id")
   @@index([order_id], map: "fk_payments_order")
   @@index([validated_by], map: "fk_payments_crm_validated_by")
 }
@@ -551,6 +570,7 @@ model payments_cso {
   orders_cso        orders_cso                   @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_payments_cso_order")
   validator         users?                       @relation(fields: [validated_by], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "fk_payments_cso_validated_by")
 
+  @@unique([order_id], map: "uq_payments_cso_order_id")
   @@index([order_id], map: "fk_payments_cso_order")
   @@index([validated_by], map: "fk_payments_cso_validated_by")
 }
@@ -635,6 +655,7 @@ model shipments {
   courier_service   String?                    @db.VarChar(100)
   shipping_cost     BigInt?                    @default(0) @db.UnsignedBigInt
   total_weight_gram Int?                       @default(0) @db.UnsignedInt
+  weight_multiplier Int?                       @db.UnsignedSmallInt
   tracking_number   String?                    @db.VarChar(100)
   shipment_status   shipments_shipment_status? @default(pending)
   created_at        DateTime                   @default(now()) @db.Timestamp(0)
@@ -642,6 +663,7 @@ model shipments {
   orders            orders                     @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_shipments_order")
   warehouses        warehouses?                @relation(fields: [warehouse_id], references: [id], onUpdate: Restrict, map: "fk_shipments_warehouse")
 
+  @@unique([order_id], map: "uq_shipments_order_id")
   @@index([order_id], map: "fk_shipments_order")
   @@index([warehouse_id], map: "fk_shipments_warehouse")
 }
@@ -654,11 +676,14 @@ model shipments_crm {
   courier_service   String?                        @db.VarChar(100)
   shipping_cost     BigInt?                        @default(0) @db.UnsignedBigInt
   total_weight_gram Int?                           @default(0) @db.UnsignedInt
+  weight_multiplier Int?                           @db.UnsignedSmallInt
   tracking_number   String?                        @db.VarChar(100)
   shipment_status   shipments_crm_shipment_status? @default(pending)
   created_at        DateTime                       @default(now()) @db.Timestamp(0)
   updated_at        DateTime                       @default(now()) @db.Timestamp(0)
+  orders_crm        orders_crm                     @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_shipments_crm_order")
 
+  @@unique([order_id], map: "uq_shipments_crm_order_id")
   @@index([order_id], map: "fk_shipments_order")
   @@index([warehouse_id], map: "fk_shipments_warehouse")
 }
@@ -671,6 +696,7 @@ model shipments_cso {
   courier_service   String?                        @db.VarChar(100)
   shipping_cost     BigInt?                        @default(0) @db.UnsignedBigInt
   total_weight_gram Int?                           @default(0) @db.UnsignedInt
+  weight_multiplier Int?                           @db.UnsignedSmallInt
   tracking_number   String?                        @db.VarChar(100)
   shipment_status   shipments_cso_shipment_status? @default(pending)
   created_at        DateTime                       @default(now()) @db.Timestamp(0)
@@ -678,6 +704,7 @@ model shipments_cso {
   orders_cso        orders_cso                     @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_shipments_cso_order")
   warehouses        warehouses?                    @relation(fields: [warehouse_id], references: [id], onUpdate: Restrict, map: "fk_shipments_cso_warehouse")
 
+  @@unique([order_id], map: "uq_shipments_cso_order_id")
   @@index([order_id], map: "fk_shipments_cso_order")
   @@index([warehouse_id], map: "fk_shipments_cso_warehouse")
 }

@@ -35,7 +35,7 @@ const TEXT: Record<Direction, {
   add: {
     title: 'Tambah Inventori Baru',
     submitLabel: 'Tambah Inventori',
-    occurredAtLabel: 'Waktu Inventori Ditambah',
+    occurredAtLabel: 'Waktu Tiba',
     invoiceNoteLabel: 'Keterangan Invoice',
     invoiceNotePlaceholder: 'Contoh: No. Invoice / PO dari supplier',
     invoiceProofLabel: 'Upload Bukti Invoice',
@@ -69,6 +69,7 @@ export default function InventoryAdjustForm({ direction }: { direction: Directio
   const [occurredAt, setOccurredAt] = useState(() => toDatetimeLocalValue(new Date()));
   const [catatan, setCatatan] = useState('');
   const [invoiceNote, setInvoiceNote] = useState('');
+  const [supplierName, setSupplierName] = useState('');
   const [invoiceProofFile, setInvoiceProofFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -122,6 +123,7 @@ export default function InventoryAdjustForm({ direction }: { direction: Directio
       fd.append('user_id', String(user?.id ?? ''));
       if (isAddLike) {
         if (invoiceNote.trim()) fd.append('invoice_note', invoiceNote.trim());
+        if (supplierName.trim()) fd.append('supplier_name', supplierName.trim());
         if (invoiceProofFile) fd.append('invoice_proof', invoiceProofFile);
       }
 
@@ -260,6 +262,17 @@ export default function InventoryAdjustForm({ direction }: { direction: Directio
 
           {isAddLike ? (
             <>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Nama Supplier</label>
+                <input
+                  type="text"
+                  value={supplierName}
+                  onChange={(event) => setSupplierName(event.target.value)}
+                  placeholder="Contoh: PT Sumber Makmur"
+                  className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 outline-none text-sm"
+                />
+              </div>
+
               <div>
                 <label className="block text-xs font-medium text-slate-500 mb-1">{invoiceNoteLabel}</label>
                 <input

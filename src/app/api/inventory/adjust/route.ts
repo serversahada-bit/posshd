@@ -23,12 +23,13 @@ async function applyStockChange(
     delta: number;
     reason: string | null;
     invoiceNote: string | null;
+    supplierName: string | null;
     invoiceProofUrl: string | null;
     userId: number | null;
     occurredAt: Date;
   },
 ) {
-  const { itemType, itemId, warehouseId, stockType, delta, reason, invoiceNote, invoiceProofUrl, userId, occurredAt } = params;
+  const { itemType, itemId, warehouseId, stockType, delta, reason, invoiceNote, supplierName, invoiceProofUrl, userId, occurredAt } = params;
   const table = itemType === 'product' ? 'warehouse_stock' : 'warehouse_gift_stock';
   const idColumn = itemType === 'product' ? 'product_id' : 'gift_id';
   const column = stockType === 'bad' ? 'bad_stock' : 'stock';
@@ -60,8 +61,8 @@ async function applyStockChange(
   }
 
   await tx.$executeRawUnsafe(
-    `INSERT INTO inventory_adjustments (item_type, item_id, stock_type, warehouse_id, quantity_before, quantity_change, quantity_after, reason, invoice_note, invoice_proof_url, created_by, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO inventory_adjustments (item_type, item_id, stock_type, warehouse_id, quantity_before, quantity_change, quantity_after, reason, invoice_note, supplier_name, invoice_proof_url, created_by, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     itemType,
     itemId,
     stockType,
@@ -71,6 +72,7 @@ async function applyStockChange(
     after,
     reason,
     invoiceNote,
+    supplierName,
     invoiceProofUrl,
     userId,
     occurredAt,
@@ -87,6 +89,7 @@ export async function POST(request: Request) {
     const warehouseId = Number(formData.get('warehouse_id') || 0);
     const reason = String(formData.get('reason') || '').trim() || null;
     const invoiceNote = String(formData.get('invoice_note') || '').trim() || null;
+    const supplierName = String(formData.get('supplier_name') || '').trim() || null;
     const userId = Number(formData.get('user_id')) || null;
     const occurredAtRaw = formData.get('occurred_at');
     const occurredAtInput = occurredAtRaw ? new Date(String(occurredAtRaw)) : null;
@@ -123,15 +126,15 @@ export async function POST(request: Request) {
     await prisma.$transaction(async (tx) => {
       if (hasSplit) {
         if (quantityGood) {
-          const r = await applyStockChange(tx, { itemType, itemId, warehouseId, stockType: 'good', delta: quantityGood, reason, invoiceNote, invoiceProofUrl, userId, occurredAt });
+          const r = await applyStockChange(tx, { itemType, itemId, warehouseId, stockType: 'good', delta: quantityGood, reason, invoiceNote, supplierName, invoiceProofUrl, userId, occurredAt });
           messages.push(`Stok baik: ${r.before} -> ${r.after}`);
         }
         if (quantityBad) {
-          const r = await applyStockChange(tx, { itemType, itemId, warehouseId, stockType: 'bad', delta: quantityBad, reason, invoiceNote, invoiceProofUrl, userId, occurredAt });
+          const r = await applyStockChange(tx, { itemType, itemId, warehouseId, stockType: 'bad', delta: quantityBad, reason, invoiceNote, supplierName, invoiceProofUrl, userId, occurredAt });
           messages.push(`Stok rusak: ${r.before} -> ${r.after}`);
         }
       } else {
-        const r = await applyStockChange(tx, { itemType, itemId, warehouseId, stockType: 'good', delta: quantityChange, reason, invoiceNote, invoiceProofUrl, userId, occurredAt });
+        const r = await applyStockChange(tx, { itemType, itemId, warehouseId, stockType: 'good', delta: quantityChange, reason, invoiceNote, supplierName, invoiceProofUrl, userId, occurredAt });
         messages.push(`Stok berhasil disesuaikan: ${r.before} -> ${r.after}`);
       }
     });

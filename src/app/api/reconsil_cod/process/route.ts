@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { Buffer } from 'node:buffer';
 
 import prisma from '@/lib/db';
-import { normalizeTrackingNumber, parseAmount, parseWorkbook } from '@/lib/codReconciliation';
+import { normalizeTrackingNumber, parseAmount, parseDisbursedDate, parseWorkbook, toSqlDateString } from '@/lib/codReconciliation';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,6 +57,10 @@ export async function POST(request: Request) {
     const file = formData.get('file');
     const resiColumn = Number(formData.get('resi_column')) || 0;
     const amountColumn = Number(formData.get('amount_column')) || 0;
+    const disbursedAtColumn = Number(formData.get('disbursed_at_column')) || 0;
+    const resiHeader = String(formData.get('resi_header') || '').trim();
+    const amountHeader = String(formData.get('amount_header') || '').trim();
+    const disbursedAtHeader = String(formData.get('disbursed_at_header') || '').trim();
     const courierName = String(formData.get('courier_name') || '').trim() || null;
     const userId = Number(formData.get('user_id')) || null;
 
@@ -83,6 +87,7 @@ export async function POST(request: Request) {
       order_code: string | null;
       source_table: string | null;
       status: 'matched' | 'mismatch' | 'not_found';
+      disbursed_at: string | null;
     };
 
     const items: ItemRow[] = [];
@@ -93,6 +98,7 @@ export async function POST(request: Request) {
       if (!trackingNumber) continue;
 
       const reportedAmount = parseAmount(row[amountColumn - 1]);
+      const disbursedAt = disbursedAtColumn ? toSqlDateString(parseDisbursedDate(row[disbursedAtColumn - 1])) : null;
       const match = await findByTrackingNumber(trackingNumber);
 
       if (!match) {
@@ -104,6 +110,7 @@ export async function POST(request: Request) {
           order_code: null,
           source_table: null,
           status: 'not_found',
+          disbursed_at: disbursedAt,
         });
         continue;
       }
@@ -119,6 +126,7 @@ export async function POST(request: Request) {
         order_code: match.order_code,
         source_table: match.source_table,
         status: difference === BigInt(0) ? 'matched' : 'mismatch',
+        disbursed_at: disbursedAt,
       });
     }
 
@@ -153,8 +161,8 @@ export async function POST(request: Request) {
 
       for (const item of items) {
         await tx.$executeRawUnsafe(
-          `INSERT INTO cod_reconciliation_items (reconciliation_id, tracking_number, reported_amount, expected_amount, difference, order_code, source_table, status, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO cod_reconciliation_items (reconciliation_id, tracking_number, reported_amount, expected_amount, difference, order_code, source_table, status, disbursed_at, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           batchId,
           item.tracking_number,
           item.reported_amount.toString(),
@@ -163,12 +171,23 @@ export async function POST(request: Request) {
           item.order_code,
           item.source_table,
           item.status,
+          item.disbursed_at,
           eventAt,
         );
       }
 
       return batchId;
     });
+
+    // Remember which header held the resi/amount/disbursed-at for this courier so the next
+    // upload of the same courier's report pre-selects the right columns automatically.
+    if (courierName && resiHeader && amountHeader) {
+      await prisma.cod_courier_column_mappings.upsert({
+        where: { courier_name: courierName },
+        update: { resi_header: resiHeader, amount_header: amountHeader, disbursed_at_header: disbursedAtHeader || null },
+        create: { courier_name: courierName, resi_header: resiHeader, amount_header: amountHeader, disbursed_at_header: disbursedAtHeader || null },
+      });
+    }
 
     return NextResponse.json({
       status: 'success',

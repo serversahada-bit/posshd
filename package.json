@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "concurrently \"node server-ws.js\" \"next dev\"",
+    "postinstall": "prisma generate",
     "build": "next build",
     "start": "next start --hostname 0.0.0.0",
     "start:full": "concurrently \"node server-ws.js\" \"next start --hostname 0.0.0.0\"",

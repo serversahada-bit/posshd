@@ -67,6 +67,14 @@ export const normalizeWhatsappCandidates = (value: string) => {
     variants.add(`62${digits}`);
   }
 
+  // hp_customer rows are stored inconsistently — some with a leading "+", most without. A
+  // "+"-prefixed variant is needed for findRemoteCustomerByWhatsapp's exact IN(...) match (a
+  // plain digits-only candidate never equals "+62..."); harmless for searchRemoteCustomers'
+  // LIKE match, which already matched "+62..." via its bare "62..." substring.
+  Array.from(variants).forEach((v) => {
+    if (v.startsWith('62')) variants.add(`+${v}`);
+  });
+
   return Array.from(variants).filter(Boolean);
 };
 
@@ -88,25 +96,43 @@ export const searchRemoteCustomers = async (query: string) => {
   const pool = getRemoteCustomerPool();
   const trimmed = query.trim();
 
-  const sql = trimmed === ''
-    ? `
+  if (trimmed === '') {
+    const [rows] = await pool.query<RemoteCustomerRow[]>(`
       SELECT id_customer, nama_customer, alamat_customer, hp_customer, desa, kecamatan, kabupaten, provinsi, kode_customer, tgl_reg, tgl_terakhir
       FROM data_customer
       ORDER BY COALESCE(tgl_reg, tgl_terakhir) DESC, id_customer DESC
       LIMIT 50
-    `
-    : `
+    `);
+    return rows.map(mapRemoteCustomer);
+  }
+
+  // hp_customer is stored inconsistently across rows (some with a leading 0, some with 62,
+  // some with +62) — a plain LIKE only matches when the typed format happens to line up with
+  // however that particular row was stored. Widen the phone match to every equivalent format
+  // (0xxx / 62xxx) so a CS typing the natural "08xx" form still finds a customer stored as
+  // "+62xxx", instead of silently coming up empty and risking a duplicate customer record.
+  const phoneCandidates = normalizeWhatsappCandidates(trimmed);
+  const phoneConditions = phoneCandidates.map(() => 'hp_customer LIKE ?').join(' OR ');
+
+  const sql = `
       SELECT id_customer, nama_customer, alamat_customer, hp_customer, desa, kecamatan, kabupaten, provinsi, kode_customer, tgl_reg, tgl_terakhir
       FROM data_customer
-      WHERE nama_customer LIKE ? 
+      WHERE nama_customer LIKE ?
          OR hp_customer LIKE ?
+         ${phoneConditions ? `OR ${phoneConditions}` : ''}
          OR hp_customer IN (SELECT contack FROM data_transaksi WHERE kode_booking = ?)
          OR hp_customer IN (SELECT CONCAT('+', contack) FROM data_transaksi WHERE kode_booking = ?)
       ORDER BY COALESCE(tgl_reg, tgl_terakhir) DESC, id_customer DESC
       LIMIT 50
     `;
 
-  const params = trimmed === '' ? [] : [`%${trimmed}%`, `%${trimmed}%`, trimmed, trimmed];
+  const params = [
+    `%${trimmed}%`,
+    `%${trimmed}%`,
+    ...phoneCandidates.map((c) => `%${c}%`),
+    trimmed,
+    trimmed,
+  ];
   const [rows] = await pool.query<RemoteCustomerRow[]>(sql, params);
   return rows.map(mapRemoteCustomer);
 };

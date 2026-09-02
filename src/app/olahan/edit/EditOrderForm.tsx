@@ -34,6 +34,17 @@ type Data = Record<string, any> & {
   editLogs?: EditLog[];
 };
 
+const orderStatusLabels: Record<string, string> = {
+  pending: 'Pending',
+  processing: 'Processing',
+  ready_to_ship: 'Ready To Ship',
+  shipped: 'Shipped',
+  completed: 'Selesai',
+  rts: 'RTS',
+  problem: 'Problem',
+  cancelled: 'Cancel',
+};
+
 const money = (value: number) => new Intl.NumberFormat('id-ID').format(value || 0);
 const number = (value: any) => Number(value || 0);
 const formatDateTime = (value: string | null | undefined) => {
@@ -212,6 +223,16 @@ export default function EditOrderForm() {
   const currentProofUrl = getProofUrl(form.payment_proof_url);
   const proofLoadFailed = Boolean(currentProofUrl && failedProofUrl === currentProofUrl);
   const requiresNewBankTransferProof = data?.payment?.payment_status === 'rejected' && form.payment_method === 'bank_transfer';
+
+  // Mirrors the backend rule in /api/olahan/edit: an order that already left Pending/Problem
+  // keeps its status on save. Only orders still in that early stage go back to Pending — and
+  // for bank transfer that only happens if the payable total actually changed (informational
+  // preview only; the backend recomputes this from the DB and is the source of truth).
+  const originalOrderStatus = String(data?.order?.order_status || 'pending');
+  const isEarlyStageOrder = originalOrderStatus === 'pending' || originalOrderStatus === 'problem';
+  const totalPaymentChangedFromOriginal = number(data?.order?.total_payment) !== total;
+  const willReturnToPending = isEarlyStageOrder && (form.payment_method === 'bank_transfer' ? totalPaymentChangedFromOriginal : true);
+  const statusPesananLabel = willReturnToPending ? 'Pending' : (orderStatusLabels[originalOrderStatus] || originalOrderStatus);
 
   const stockByWarehouse = useMemo(() => {
     if (!data) {
@@ -481,7 +502,15 @@ export default function EditOrderForm() {
         throw new Error(json.message || 'Gagal menyimpan');
       }
 
-      await Swal.fire('Berhasil', json.message, 'success');
+      if (json.paymentStatusOverridden) {
+        await Swal.fire(
+          'Tersimpan, Perlu Validasi FAT Ulang',
+          'Perubahan pesanan berhasil disimpan. Karena ada perubahan pada barang dan/atau total pembayaran pesanan ini, status pembayaran otomatis diatur ke "Menunggu Validasi FAT" — bukan status yang Anda pilih di form.',
+          'warning',
+        );
+      } else {
+        await Swal.fire('Berhasil', json.message, 'success');
+      }
       router.push('/olahan');
     } catch (error: any) {
       await Swal.fire('Gagal', error.message, 'error');
@@ -665,6 +694,11 @@ export default function EditOrderForm() {
                           </button>
                         ))}
                       </div>
+                    ) : null}
+                    {!loadingCouriers && form.subdistrict && availableCouriers.length === 0 ? (
+                      <p className="mt-2 text-xs font-medium text-amber-600">
+                        Alamat ini belum ada tarif ongkirnya — kurir tidak bisa dipilih otomatis. Pesanan tetap bisa disimpan, tapi cek lagi ejaan kecamatan/kotanya atau pilih dari daftar saran.
+                      </p>
                     ) : null}
                   </Field>
                 </div>
@@ -941,8 +975,18 @@ export default function EditOrderForm() {
                   />
                 </Field>
                 <Field label="Status Pesanan">
-                  <input className={`${inputClass} bg-slate-100 text-slate-500`} value="Pending" disabled readOnly />
-                  <p className="mt-2 text-xs text-amber-600">Setiap simpan edit dari halaman ini akan otomatis mengubah status pesanan menjadi Pending.</p>
+                  <input className={`${inputClass} bg-slate-100 text-slate-500`} value={statusPesananLabel} disabled readOnly />
+                  {willReturnToPending ? (
+                    <p className="mt-2 text-xs text-amber-600">
+                      {form.payment_method === 'bank_transfer'
+                        ? 'Total pembayaran berubah — status pesanan akan disimpan sebagai Pending untuk direview ulang.'
+                        : 'Menyimpan perubahan ini akan mengatur status pesanan menjadi Pending.'}
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-400">
+                      Pesanan ini sudah lanjut ke tahap {statusPesananLabel} — status tidak akan berubah karena diedit.
+                    </p>
+                  )}
                 </Field>
                 <Field label="Catatan">
                   <textarea rows={3} className={textareaClass} value={form.notes} onChange={(event) => set("notes", event.target.value)} />
@@ -996,8 +1040,8 @@ export default function EditOrderForm() {
               )}
 
               {data.editLogs && data.editLogs.length > 0 ? (
-                <div className="mt-4 space-y-2 border-t border-slate-100 pt-4">
-                  {data.editLogs.slice(0, 5).map((log) => (
+                <div className="mt-4 max-h-[520px] space-y-2 overflow-y-auto border-t border-slate-100 pt-4">
+                  {data.editLogs.map((log) => (
                     <div key={log.id} className="rounded-xl bg-slate-50 px-3 py-2">
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-medium text-slate-700">{log.user_name || 'User tidak dikenal'}</p>
