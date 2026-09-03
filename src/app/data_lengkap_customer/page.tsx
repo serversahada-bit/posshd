@@ -1058,6 +1058,7 @@ export default function OlahanPage() {
                     <p className="text-sm font-bold text-slate-800">{selectedCustomer.name}</p>
                     <p className="text-xs text-slate-500 mt-0.5">{selectedCustomer.whatsapp_number}</p>
                     <p className="text-xs text-slate-500 mt-1">{selectedCustomer.address}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">{selectedCustomer.subdistrict}</p>
                   </div>
                 )}
                 {itemsLoading ? (
