@@ -224,12 +224,13 @@ export default function EditOrderForm() {
   const proofLoadFailed = Boolean(currentProofUrl && failedProofUrl === currentProofUrl);
   const requiresNewBankTransferProof = data?.payment?.payment_status === 'rejected' && form.payment_method === 'bank_transfer';
 
-  // Mirrors the backend rule in /api/olahan/edit: an order that already left Pending/Problem
-  // keeps its status on save. Only orders still in that early stage go back to Pending — and
-  // for bank transfer that only happens if the payable total actually changed (informational
-  // preview only; the backend recomputes this from the DB and is the source of truth).
+  // Mirrors the backend rule in /api/olahan/edit: an order that already left the early stage
+  // (Pending/Processing/Ready To Ship/Problem/Cancelled) keeps its status on save. Only orders
+  // still in that early stage go back to Pending — and for bank transfer that only happens if
+  // the payable total actually changed (informational preview only; the backend recomputes this
+  // from the DB and is the source of truth).
   const originalOrderStatus = String(data?.order?.order_status || 'pending');
-  const isEarlyStageOrder = originalOrderStatus === 'pending' || originalOrderStatus === 'problem';
+  const isEarlyStageOrder = ['pending', 'processing', 'ready_to_ship', 'problem', 'cancelled'].includes(originalOrderStatus);
   const totalPaymentChangedFromOriginal = number(data?.order?.total_payment) !== total;
   const willReturnToPending = isEarlyStageOrder && (form.payment_method === 'bank_transfer' ? totalPaymentChangedFromOriginal : true);
   const statusPesananLabel = willReturnToPending ? 'Pending' : (orderStatusLabels[originalOrderStatus] || originalOrderStatus);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
 import { getRekapHarianData, parseDateKey, resolveDefaultRange } from '../_lib';
+import { logExportActivity } from '@/lib/exportLog';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,6 +61,12 @@ export async function POST(request: NextRequest) {
     const now = new Date();
     const pad = (value: number) => String(value).padStart(2, '0');
     const timestampName = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+
+    await logExportActivity({
+      request,
+      target: 'Rekap Harian',
+      details: `Mengekspor rekap harian | Periode: ${startKey} s/d ${endKey}`,
+    });
 
     return new NextResponse(buffer, {
       status: 200,

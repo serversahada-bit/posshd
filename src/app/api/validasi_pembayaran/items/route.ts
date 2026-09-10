@@ -81,9 +81,10 @@ export async function GET(request: NextRequest) {
     const customerName = customerAddress?.receiver_name || customer?.name || '-';
     const whatsappNumber = customerAddress?.whatsapp_number || customer?.whatsapp_number || '-';
     const fullAddress = customerAddress?.address || customer?.address || '-';
-    const subdistrict = [customerAddress?.province, customerAddress?.city, customerAddress?.district]
-      .filter(Boolean)
-      .join(',') || customer?.subdistrict || '-';
+    const subdistrict =
+      [customerAddress?.province, customerAddress?.city, customerAddress?.district].filter(Boolean).join(',') ||
+      customer?.subdistrict ||
+      '-';
 
     const safeItems = items.map((item) => ({
       product_name: item.product_name,

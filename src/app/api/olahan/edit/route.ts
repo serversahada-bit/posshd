@@ -592,9 +592,10 @@ export async function PUT(request: Request) {
       const roCount = Number(payload.ro_count || 0);
 
       // Send the order back to "pending" for re-review while it's still in the
-      // pending/processing/ready_to_ship/problem stage — otherwise an order that's already
+      // pending/processing/ready_to_ship/problem/cancelled stage — otherwise an order that's already
       // Shipped/Completed/RTS would get silently reverted to Pending (wiping processing_at and
-      // the export's shipped/completed date columns) just because someone fixed a typo.
+      // the export's shipped/completed date columns) just because someone fixed a typo. Cancelled
+      // orders are treated as early-stage too — editing one means it's being un-cancelled/re-worked.
       // Bank transfer / Free orders are the exception: they don't flip back to Pending here —
       // that happens later, when FAT actually re-approves the payment (see requiresFatRevalidation
       // below and the matching order_status bump in /api/validasi_pembayaran) — since the order
@@ -604,7 +605,7 @@ export async function PUT(request: Request) {
       const newTotalPayment = Number(payload.total_payment);
       const totalChanged = oldTotalPayment !== newTotalPayment;
       const isBankTransferOrFree = paymentMethodInput === 'bank_transfer' || paymentMethodInput === 'free';
-      const wasEarlyStage = ['pending', 'processing', 'ready_to_ship', 'problem'].includes(old.order_status);
+      const wasEarlyStage = ['pending', 'processing', 'ready_to_ship', 'problem', 'cancelled'].includes(old.order_status);
       const nextOrderStatus = !isBankTransferOrFree && wasEarlyStage ? 'pending' : old.order_status;
 
       if (source === 'CSO') {

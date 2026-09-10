@@ -3,6 +3,7 @@ import prisma from '@/lib/db';
 import ExcelJS from 'exceljs';
 import { splitRegionParts } from '@/lib/address';
 import { calculateShippingMultiplier, normalizeCourierKey } from '@/lib/shippingWeight';
+import { buildOrderExportFilterSummary, getDateRangeFromRows, logExportActivity } from '@/lib/exportLog';
 
 export const dynamic = 'force-dynamic';
 
@@ -826,6 +827,14 @@ export async function POST(request: Request) {
     const now = new Date();
     const pad = (value: number) => String(value).padStart(2, '0');
     const timestampName = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+
+    const fallbackDateRange = getDateRangeFromRows(orders, (order) => order.created_at);
+    const filterSummary = await buildOrderExportFilterSummary({ startDate, endDate, status, creatorName, warehouseId, selectedIds }, fallbackDateRange);
+    await logExportActivity({
+      request,
+      target: 'Data Lengkap Customer',
+      details: `Mengekspor ${orders.length} data lengkap customer | ${filterSummary}`,
+    });
 
     return new NextResponse(buffer, {
       status: 200,

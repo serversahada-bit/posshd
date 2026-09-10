@@ -181,13 +181,9 @@ async function processStatusUpdateForSource(
   const { orders } = getTablesForSource(source);
   const rows = await fetchRowsForIds(tx, source, ids);
 
-  for (const row of rows) {
-    if (row.order_status !== 'cancelled' && bulkStatus === 'cancelled') {
-      await adjustOrderStock(tx, source, Number(row.id), Number(row.warehouse_id || 0), 1);
-    } else if (row.order_status === 'cancelled' && bulkStatus !== 'cancelled') {
-      await adjustOrderStock(tx, source, Number(row.id), Number(row.warehouse_id || 0), -1);
-    }
-  }
+  // Cancelling (or un-cancelling) an order no longer touches warehouse_stock — stock stays
+  // consumed once deducted at order creation, regardless of status changes. Only deleting the
+  // order (processDeleteForSource below) still releases it back.
 
   await tx.$executeRawUnsafe(
     buildStatusUpdateQuery(orders, ids),

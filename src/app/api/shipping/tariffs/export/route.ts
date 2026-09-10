@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
 
 import prisma from '@/lib/db';
+import { logExportActivity } from '@/lib/exportLog';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,6 +35,13 @@ export async function GET(request: NextRequest) {
     const format = (searchParams.get('format') || 'csv').toLowerCase();
     const search = (searchParams.get('search') || '').trim();
     const rows = await getRows(search);
+
+    const filterSummary = search ? `Pencarian: "${search}"` : 'Tanpa filter (semua data)';
+    await logExportActivity({
+      request,
+      target: 'Tarif Ongkir',
+      details: `Mengekspor ${rows.length} tarif ongkir (format: ${format}) | ${filterSummary}`,
+    });
 
     if (format === 'excel') {
       const workbook = new ExcelJS.Workbook();

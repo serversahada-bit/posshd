@@ -6,9 +6,11 @@ import { hasColumn } from '@/lib/orderTimestamps';
 import { logOrderStatusChange } from '@/lib/orderStatusLog';
 
 // Orders still in one of these stages haven't shipped yet, so re-approving their payment after
-// an edit-triggered revalidation can safely restart them at Pending. Shipped/Completed/RTS are
-// deliberately excluded — those shouldn't be touched even if a payment somehow re-enters FAT.
-const REVALIDATION_RESTART_STATUSES = ['pending', 'processing', 'ready_to_ship', 'problem'];
+// an edit-triggered revalidation can safely restart them at Pending. Cancelled is included since
+// editing a cancelled order now treats it as early-stage too (see wasEarlyStage in /api/olahan/edit).
+// Shipped/Completed/RTS are deliberately excluded — those shouldn't be touched even if a payment
+// somehow re-enters FAT.
+const REVALIDATION_RESTART_STATUSES = ['pending', 'processing', 'ready_to_ship', 'problem', 'cancelled'];
 
 type UnvalidatedOrder = {
   order_id: bigint | number;

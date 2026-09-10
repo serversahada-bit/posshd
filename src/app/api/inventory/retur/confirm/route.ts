@@ -19,16 +19,16 @@ const SOURCE_CONFIG: Record<Source, { orders: string }> = {
   CRM: { orders: 'orders_crm' },
 };
 
-type StockType = 'good' | 'bad';
-
-async function applyStockChange(
+// Records the retur in Riwayat Inventori for traceability, without actually moving stock —
+// quantity_before/after are both set to the item's current on-hand count (quantity_change stays
+// 0) since a returned item stays counted as consumed regardless of its good/bad condition.
+async function logReturAdjustment(
   tx: any,
   params: {
     itemType: 'product' | 'gift';
     itemId: number;
     warehouseId: number;
-    stockType: StockType;
-    delta: number;
+    stockType: 'good' | 'bad';
     reason: string | null;
     invoiceNote: string | null;
     invoiceProofUrl: string | null;
@@ -36,7 +36,7 @@ async function applyStockChange(
     occurredAt: Date;
   },
 ) {
-  const { itemType, itemId, warehouseId, stockType, delta, reason, invoiceNote, invoiceProofUrl, userId, occurredAt } = params;
+  const { itemType, itemId, warehouseId, stockType, reason, invoiceNote, invoiceProofUrl, userId, occurredAt } = params;
   const table = itemType === 'product' ? 'warehouse_stock' : 'warehouse_gift_stock';
   const idColumn = itemType === 'product' ? 'product_id' : 'gift_id';
   const column = stockType === 'bad' ? 'bad_stock' : 'stock';
@@ -46,32 +46,17 @@ async function applyStockChange(
     itemId,
     warehouseId,
   );
-  const existing = existingRows[0];
-  const before = existing ? Number(existing[column as 'stock' | 'bad_stock']) : 0;
-  const after = before + delta;
-
-  if (existing) {
-    await tx.$executeRawUnsafe(`UPDATE ${table} SET ${column} = ? WHERE ${idColumn} = ? AND warehouse_id = ?`, after, itemId, warehouseId);
-  } else {
-    const otherColumn = column === 'stock' ? 'bad_stock' : 'stock';
-    await tx.$executeRawUnsafe(
-      `INSERT INTO ${table} (${idColumn}, warehouse_id, ${column}, ${otherColumn}) VALUES (?, ?, ?, 0)`,
-      itemId,
-      warehouseId,
-      after,
-    );
-  }
+  const current = existingRows[0] ? Number(existingRows[0][column as 'stock' | 'bad_stock']) : 0;
 
   await tx.$executeRawUnsafe(
     `INSERT INTO inventory_adjustments (item_type, item_id, stock_type, warehouse_id, quantity_before, quantity_change, quantity_after, reason, invoice_note, invoice_proof_url, created_by, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
     itemType,
     itemId,
     stockType,
     warehouseId,
-    before,
-    delta,
-    after,
+    current,
+    current,
     reason,
     invoiceNote,
     invoiceProofUrl,
@@ -155,13 +140,12 @@ export async function POST(request: Request) {
         const bad = Number(item.quantity_bad) || 0;
 
         if (good > 0) {
-          await applyStockChange(tx, {
+          await logReturAdjustment(tx, {
             itemType,
             itemId: Number(item.product_id),
             warehouseId,
             stockType: 'good',
-            delta: good,
-            reason: orderReason,
+            reason: `${orderReason} — ${good} unit kondisi baik (stok tidak dikembalikan)`,
             invoiceNote,
             invoiceProofUrl,
             userId,
@@ -169,13 +153,12 @@ export async function POST(request: Request) {
           });
         }
         if (bad > 0) {
-          await applyStockChange(tx, {
+          await logReturAdjustment(tx, {
             itemType,
             itemId: Number(item.product_id),
             warehouseId,
             stockType: 'bad',
-            delta: bad,
-            reason: orderReason,
+            reason: `${orderReason} — ${bad} unit kondisi rusak (stok tidak dikembalikan)`,
             invoiceNote,
             invoiceProofUrl,
             userId,

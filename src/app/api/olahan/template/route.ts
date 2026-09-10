@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
 
 import prisma from '@/lib/db';
+import { buildOrderExportFilterSummary, getDateRangeFromRows, logExportActivity } from '@/lib/exportLog';
 
 export const dynamic = 'force-dynamic';
 
@@ -206,6 +207,14 @@ export async function POST(request: Request) {
     });
 
     const buffer = await workbook.xlsx.writeBuffer();
+
+    const fallbackDateRange = getDateRangeFromRows(orders, (order) => order.created_at);
+    const filterSummary = await buildOrderExportFilterSummary(body, fallbackDateRange);
+    await logExportActivity({
+      request,
+      target: 'Template Update Status',
+      details: `Mengunduh template status untuk ${orders.length} pesanan | ${filterSummary}`,
+    });
 
     return new NextResponse(buffer, {
       status: 200,

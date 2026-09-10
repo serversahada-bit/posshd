@@ -2,10 +2,11 @@ import { NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
 
 import prisma from '@/lib/db';
+import { logExportActivity } from '@/lib/exportLog';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const [warehouses, products, stockRows] = await Promise.all([
       prisma.warehouses.findMany({
@@ -70,6 +71,13 @@ export async function GET() {
     });
 
     const buffer = await workbook.xlsx.writeBuffer();
+
+    await logExportActivity({
+      request,
+      target: 'Stok Produk',
+      details: `Mengekspor stok ${products.length} produk | Tanpa filter (semua data)`,
+    });
+
     return new NextResponse(buffer, {
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
