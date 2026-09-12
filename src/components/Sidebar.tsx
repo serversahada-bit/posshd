@@ -31,7 +31,8 @@ import {
     LogOut,
     Settings,
     Database,
-    Wallet
+    Wallet,
+    KeyRound
 } from 'lucide-react';
 
 type NavItemProps = {
@@ -321,6 +322,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
                 <div className="sidebar__list">
                 <NavItem href="/manajemen_user" icon={UserCog} label="Manajemen User" active={pathname === '/manajemen_user'} />
                 <NavItem href="/logs" icon={Activity} label="Log Aktivitas" active={pathname === '/logs'} />
+                <NavItem href="/setting_api_key" icon={KeyRound} label="API Key" active={pathname === '/setting_api_key'} />
                 </div>
             </div>
             )}
