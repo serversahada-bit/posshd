@@ -1,0 +1,374 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import prisma from '@/lib/db';
+import { emitEvent } from '@/lib/socket-server';
+import { hasColumn } from '@/lib/orderTimestamps';
+import { logOrderStatusChange } from '@/lib/orderStatusLog';
+
+// Orders still in one of these stages haven't shipped yet, so re-approving their payment after
+// an edit-triggered revalidation can safely restart them at Pending. Cancelled is included since
+// editing a cancelled order now treats it as early-stage too (see wasEarlyStage in /api/olahan/edit).
+// Shipped/Completed/RTS are deliberately excluded — those shouldn't be touched even if a payment
+// somehow re-enters FAT.
+const REVALIDATION_RESTART_STATUSES = ['pending', 'processing', 'ready_to_ship', 'problem', 'cancelled'];
+
+type UnvalidatedOrder = {
+  order_id: bigint | number;
+  order_code: string;
+  created_at: Date | string;
+  total_payment: bigint | number;
+  customer_name: string | null;
+  payment_id: bigint | number;
+  payment_status: string;
+  payment_method: string;
+  payment_proof_url: string | null;
+  bank_name: string | null;
+  account_name: string | null;
+  account_number: string | null;
+  reject_reason: string | null;
+  validated_by_name: string | null;
+  source_table: 'CSO' | 'CSO_AUTO' | 'CRM';
+};
+
+const jsonSafe = <T>(value: T): T =>
+  JSON.parse(
+    JSON.stringify(value, (_key, item) =>
+      typeof item === 'bigint' ? item.toString() : item
+    )
+  ) as T;
+
+export const dynamic = 'force-dynamic';
+
+async function getValidatedSessionUserId() {
+  const cookieStore = await cookies();
+  const userId = Number(cookieStore.get('sahada_user_id')?.value || 0);
+
+  if (!userId) {
+    return null;
+  }
+
+  const user = await prisma.users.findUnique({
+    where: { id: userId },
+    select: { id: true },
+  });
+
+  return user?.id ?? null;
+}
+
+async function createPaymentValidationLog({
+  userId,
+  action,
+  details,
+  ipAddress,
+}: {
+  userId: number | null;
+  action: string;
+  details: string;
+  ipAddress: string | null;
+}) {
+  if (!userId) {
+    return;
+  }
+
+  await prisma.activity_logs.create({
+    data: {
+      user_id: userId,
+      action,
+      target: 'Validasi Pembayaran',
+      details,
+      ip_address: ipAddress,
+    }
+  });
+}
+
+export async function GET() {
+  try {
+    // We use Prisma's $queryRaw to mimic the UNION ALL query exactly as in POIN.
+    const unvalidatedOrders = await prisma.$queryRaw<UnvalidatedOrder[]>`
+      SELECT * FROM (
+          SELECT
+              o.id as order_id,
+              o.order_code,
+              o.created_at,
+              o.total_payment,
+              c.name as customer_name,
+              p.id as payment_id,
+              p.payment_method,
+              p.payment_status,
+              p.payment_proof_url,
+              p.bank_name,
+              p.account_name,
+              p.account_number,
+              p.reject_reason,
+              vu.name as validated_by_name,
+              'CSO' as source_table
+          FROM orders o
+          LEFT JOIN customers c ON o.customer_id = c.id
+          INNER JOIN payments p ON o.id = p.order_id
+          LEFT JOIN users vu ON vu.id = p.validated_by
+          WHERE p.payment_status != 'paid' AND (p.payment_method = 'bank_transfer' OR (p.payment_method = 'free' AND p.payment_proof_url IS NOT NULL AND p.payment_proof_url != ''))
+
+          UNION ALL
+
+          SELECT
+              o.id as order_id,
+              o.order_code,
+              o.created_at,
+              o.total_payment,
+              c.name as customer_name,
+              p.id as payment_id,
+              p.payment_method,
+              p.payment_status,
+              p.payment_proof_url,
+              p.bank_name,
+              p.account_name,
+              p.account_number,
+              p.reject_reason,
+              vu.name as validated_by_name,
+              'CSO_AUTO' as source_table
+          FROM orders_cso o
+          LEFT JOIN customers c ON o.customer_id = c.id
+          INNER JOIN payments_cso p ON o.id = p.order_id
+          LEFT JOIN users vu ON vu.id = p.validated_by
+          WHERE p.payment_status != 'paid' AND (p.payment_method = 'bank_transfer' OR (p.payment_method = 'free' AND p.payment_proof_url IS NOT NULL AND p.payment_proof_url != ''))
+
+          UNION ALL
+
+          SELECT
+              o.id as order_id,
+              o.order_code,
+              o.created_at,
+              o.total_payment,
+              c.name as customer_name,
+              p.id as payment_id,
+              p.payment_method,
+              p.payment_status,
+              p.payment_proof_url,
+              p.bank_name,
+              p.account_name,
+              p.account_number,
+              p.reject_reason,
+              vu.name as validated_by_name,
+              'CRM' as source_table
+          FROM orders_crm o
+          LEFT JOIN customers c ON o.customer_id = c.id
+          INNER JOIN payments_crm p ON o.id = p.order_id
+          LEFT JOIN users vu ON vu.id = p.validated_by
+          WHERE p.payment_status != 'paid' AND (p.payment_method = 'bank_transfer' OR (p.payment_method = 'free' AND p.payment_proof_url IS NOT NULL AND p.payment_proof_url != ''))
+      ) as combined_unvalidated
+      ORDER BY created_at DESC
+    `;
+
+    return NextResponse.json(jsonSafe({ status: 'success', data: unvalidatedOrders }));
+  } catch (error: unknown) {
+    console.error('Error fetching unvalidated orders:', error);
+    return NextResponse.json(
+      { status: 'error', message: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const userId = await getValidatedSessionUserId();
+    const ipAddress =
+      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      request.headers.get('x-real-ip') ||
+      null;
+    const body = await request.json();
+    const { action, payment_id, source_table, id_reff } = body;
+
+    if (!payment_id || !source_table || !action) {
+      return NextResponse.json({ status: 'error', message: 'Missing required parameters' }, { status: 400 });
+    }
+
+    const pid = Number(payment_id);
+
+    if (action === 'approve') {
+      let paymentMethodForApproval: string | null = null;
+      let orderCode: string | null = null;
+      let orderIdForApproval: number | null = null;
+      let orderStatusForApproval: string | null = null;
+
+      if (source_table === 'CRM') {
+        const payment = await prisma.payments_crm.findUnique({
+          where: { id: pid },
+          select: { payment_method: true, order_id: true },
+        });
+        paymentMethodForApproval = payment?.payment_method ?? null;
+        if (payment?.order_id) {
+          const order = await prisma.orders_crm.findUnique({ where: { id: payment.order_id }, select: { order_code: true, order_status: true } });
+          orderCode = order?.order_code ?? null;
+          orderStatusForApproval = order?.order_status ?? null;
+          orderIdForApproval = payment.order_id;
+        }
+      } else if (source_table === 'CSO_AUTO') {
+        const payment = await prisma.payments_cso.findUnique({
+          where: { id: pid },
+          select: { payment_method: true, order_id: true },
+        });
+        paymentMethodForApproval = payment?.payment_method ?? null;
+        if (payment?.order_id) {
+          const order = await prisma.orders_cso.findUnique({ where: { id: payment.order_id }, select: { order_code: true, order_status: true } });
+          orderCode = order?.order_code ?? null;
+          orderStatusForApproval = order?.order_status ?? null;
+          orderIdForApproval = payment.order_id;
+        }
+      } else {
+        const payment = await prisma.payments.findUnique({
+          where: { id: pid },
+          select: { payment_method: true, order_id: true },
+        });
+        paymentMethodForApproval = payment?.payment_method ?? null;
+        if (payment?.order_id) {
+          const order = await prisma.orders.findUnique({ where: { id: payment.order_id }, select: { order_code: true, order_status: true } });
+          orderCode = order?.order_code ?? null;
+          orderStatusForApproval = order?.order_status ?? null;
+          orderIdForApproval = payment.order_id;
+        }
+      }
+
+      if (!paymentMethodForApproval) {
+        return NextResponse.json({ status: 'error', message: 'Pembayaran tidak ditemukan' }, { status: 404 });
+      }
+
+      const requiresIdReff = paymentMethodForApproval === 'bank_transfer';
+      const normalizedIdReff = typeof id_reff === 'string' ? id_reff.trim() : '';
+
+      if (requiresIdReff && !normalizedIdReff) {
+        return NextResponse.json({ status: 'error', message: 'ID Reff wajib diisi' }, { status: 400 });
+      }
+
+      const approvalData = {
+        payment_status: 'paid' as const,
+        paid_at: new Date(),
+        fat_proof_url: requiresIdReff ? normalizedIdReff : null,
+        validated_by: userId,
+      };
+
+      if (source_table === 'CRM') {
+        await prisma.payments_crm.update({
+          where: { id: pid },
+          data: approvalData
+        });
+      } else if (source_table === 'CSO_AUTO') {
+        await prisma.payments_cso.update({
+          where: { id: pid },
+          data: approvalData
+        });
+      } else {
+        await prisma.payments.update({
+          where: { id: pid },
+          data: approvalData
+        });
+      }
+
+      // Bank transfer / Free orders that got sent back to FAT by an edit (see requiresFatRevalidation
+      // in /api/olahan/edit) never had their order_status touched at edit time — this is where they
+      // actually restart at Pending, now that the re-review is resolved. A fresh order that's still
+      // legitimately Pending is a no-op here. Shipped/Completed/RTS are left alone entirely.
+      //
+      // pending_at is deliberately NOT touched here (unlike the edit-time bump) — the export's
+      // "Timestamp" column should stay pinned to when the order was last *edited*, not when FAT
+      // got around to re-approving it; paid_at (set above) already covers "Keterangan Ninja" /
+      // "Tanggal Validasi Pembayaran" moving to the approval moment. processing_at *does* get
+      // cleared, same as a fresh Pending order, since it should stay empty until the order is
+      // actually moved to Processing again.
+      const isBankTransferOrFreeApproval = paymentMethodForApproval === 'bank_transfer' || paymentMethodForApproval === 'free';
+      if (isBankTransferOrFreeApproval && orderIdForApproval && orderStatusForApproval && REVALIDATION_RESTART_STATUSES.includes(orderStatusForApproval)) {
+        const ordersTable = source_table === 'CRM' ? 'orders_crm' : source_table === 'CSO_AUTO' ? 'orders_cso' : 'orders';
+        const setClauses = ["order_status = 'pending'", 'updated_at = ?'];
+        const params: unknown[] = [approvalData.paid_at];
+        if (await hasColumn(prisma, ordersTable, 'processing_at')) {
+          setClauses.push('processing_at = NULL');
+        }
+        params.push(orderIdForApproval);
+        await prisma.$executeRawUnsafe(`UPDATE ${ordersTable} SET ${setClauses.join(', ')} WHERE id = ?`, ...params);
+
+        if (orderCode) {
+          await logOrderStatusChange(prisma, {
+            userId,
+            orderCode,
+            source: source_table,
+            fromStatus: orderStatusForApproval,
+            toStatus: 'pending',
+            ipAddress,
+            reason: 'Status diulang ke pending setelah Approve FAT',
+          });
+        }
+      }
+
+      const approveOrderMarker = orderCode ? ` (Order: ${orderCode}, Source: ${source_table})` : '';
+      await createPaymentValidationLog({
+        userId,
+        action: 'Approve FAT',
+        details: requiresIdReff
+          ? `Approve pembayaran${approveOrderMarker} - ID Reff: ${normalizedIdReff}`
+          : `Approve pembayaran free${approveOrderMarker}`,
+        ipAddress,
+      });
+
+      await emitEvent('NEW_OLAHAN');
+
+      return NextResponse.json({ status: 'success', message: 'Pembayaran berhasil divalidasi FAT.' });
+    }
+
+    if (action === 'reject') {
+      const { reject_reason } = body;
+      let orderCode: string | null = null;
+
+      if (source_table === 'CRM') {
+        const payment = await prisma.payments_crm.update({
+          where: { id: pid },
+          data: { payment_status: 'rejected', reject_reason, validated_by: userId }
+        });
+        const order = await prisma.orders_crm.update({
+          where: { id: payment.order_id },
+          data: { order_status: 'problem' }
+        });
+        orderCode = order.order_code;
+      } else if (source_table === 'CSO_AUTO') {
+        const payment = await prisma.payments_cso.update({
+          where: { id: pid },
+          data: { payment_status: 'rejected', reject_reason, validated_by: userId }
+        });
+        const order = await prisma.orders_cso.update({
+          where: { id: payment.order_id },
+          data: { order_status: 'problem' }
+        });
+        orderCode = order.order_code;
+      } else {
+        const payment = await prisma.payments.update({
+          where: { id: pid },
+          data: { payment_status: 'rejected', reject_reason, validated_by: userId }
+        });
+        const order = await prisma.orders.update({
+          where: { id: payment.order_id },
+          data: { order_status: 'problem' }
+        });
+        orderCode = order.order_code;
+      }
+
+      const rejectOrderMarker = orderCode ? ` (Order: ${orderCode}, Source: ${source_table})` : '';
+      await createPaymentValidationLog({
+        userId,
+        action: 'Reject FAT',
+        details: `Tolak pembayaran${rejectOrderMarker}${reject_reason ? ` - Alasan: ${reject_reason}` : ''}`,
+        ipAddress,
+      });
+
+      await emitEvent('NEW_OLAHAN');
+
+      return NextResponse.json({ status: 'success', message: 'Pembayaran ditolak.' });
+    }
+
+    return NextResponse.json({ status: 'error', message: 'Invalid action' }, { status: 400 });
+  } catch (error: unknown) {
+    console.error('Error handling validasi pembayaran:', error);
+    return NextResponse.json(
+      { status: 'error', message: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    );
+  }
+}
