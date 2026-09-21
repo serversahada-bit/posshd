@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import prisma from '@/lib/db';
 import { hasColumn } from '@/lib/orderTimestamps';
+import { buildOrderItemFilterCondition, parseItemMatchMode } from '@/lib/olahanItemFilter';
 
 const jsonSafe = <T>(value: T): T => JSON.parse(JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? item.toString() : item)) as T;
 
@@ -16,6 +17,9 @@ export async function GET(request: Request) {
     const creatorNameList = searchParams.getAll('creator_name').filter(Boolean);
     const warehouseIdList = searchParams.getAll('warehouse_id').filter(Boolean);
     const paymentMethodList = searchParams.getAll('payment_method').filter(Boolean);
+    const productIdList = searchParams.getAll('product_id').filter(Boolean);
+    const giftNameList = searchParams.getAll('gift_name').filter(Boolean);
+    const itemMatchMode = parseItemMatchMode(searchParams.get('item_match'));
     const search = searchParams.get('search') || '';
     const sort = searchParams.get('sort') || 'created_at';
     const limit = Math.min(Math.max(Number(searchParams.get('limit')) || 20, 1), 100);
@@ -126,6 +130,9 @@ export async function GET(request: Request) {
       conditionQuery += ` AND payment_method IN (${paymentMethodList.map(() => '?').join(',')})`;
       params.push(...paymentMethodList);
     }
+    const itemFilter = buildOrderItemFilterCondition({ productIds: productIdList, giftNames: giftNameList, matchMode: itemMatchMode },'combined_orders.order_id');
+    conditionQuery += itemFilter.conditionQuery;
+    params.push(...itemFilter.params);
     if (sort === 'processing_at') {
       conditionQuery += ` AND processing_at IS NOT NULL`;
     }

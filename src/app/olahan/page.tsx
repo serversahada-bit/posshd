@@ -9,6 +9,7 @@ import Select, { components, type MultiValueProps } from 'react-select';
 
 import { useAuth } from '@/contexts/AuthContext';
 import { useSocketEvent } from '@/hooks/useSocketEvent';
+import type { ItemMatchMode } from '@/lib/olahanItemFilter';
 
 type OrderItem = {
   order_id: number;
@@ -58,6 +59,18 @@ type UserFilterOption = {
 type WarehouseFilterOption = {
   id: number;
   warehouse_name: string;
+};
+
+type ProductFilterOption = {
+  id: number;
+  product_name: string;
+  status?: string | null;
+};
+
+type GiftFilterOption = {
+  id: number;
+  gift_name: string;
+  status?: string | null;
 };
 
 const statusOptions = [
@@ -158,6 +171,9 @@ export default function OlahanPage() {
   const [creatorFilter, setCreatorFilter] = useState<string[]>([]);
   const [warehouseFilter, setWarehouseFilter] = useState<string[]>([]);
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<string[]>([]);
+  const [productFilter, setProductFilter] = useState<string[]>([]);
+  const [giftFilter, setGiftFilter] = useState<string[]>([]);
+  const [itemMatch, setItemMatch] = useState<ItemMatchMode>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Draft copies edited inside the filter modal; only committed to the real filters on "Terapkan".
@@ -167,6 +183,9 @@ export default function OlahanPage() {
   const [draftCreatorFilter, setDraftCreatorFilter] = useState<string[]>([]);
   const [draftWarehouseFilter, setDraftWarehouseFilter] = useState<string[]>([]);
   const [draftPaymentMethodFilter, setDraftPaymentMethodFilter] = useState<string[]>([]);
+  const [draftProductFilter, setDraftProductFilter] = useState<string[]>([]);
+  const [draftGiftFilter, setDraftGiftFilter] = useState<string[]>([]);
+  const [draftItemMatch, setDraftItemMatch] = useState<ItemMatchMode>('all');
 
   // Sync state when searchParams change
   useEffect(() => {
@@ -176,6 +195,8 @@ export default function OlahanPage() {
   const sortBy = sortByParam;
   const [users, setUsers] = useState<UserFilterOption[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseFilterOption[]>([]);
+  const [products, setProducts] = useState<ProductFilterOption[]>([]);
+  const [gifts, setGifts] = useState<GiftFilterOption[]>([]);
 
   const [bulkStatus, setBulkStatus] = useState('');
   const [selectedIds, setSelectedIds] = useState<{ id: number; source: string }[]>([]);
@@ -195,6 +216,9 @@ export default function OlahanPage() {
       creatorFilter.forEach((value) => query.append('creator_name', value));
       warehouseFilter.forEach((value) => query.append('warehouse_id', value));
       paymentMethodFilter.forEach((value) => query.append('payment_method', value));
+      productFilter.forEach((value) => query.append('product_id', value));
+      giftFilter.forEach((value) => query.append('gift_name', value));
+      query.append('item_match', itemMatch);
       if (searchQuery) query.append('search', searchQuery);
       query.append('limit', String(PAGE_SIZE));
       query.append('offset', String(offsetValue));
@@ -219,7 +243,7 @@ export default function OlahanPage() {
         setTotal(null);
       }
     }
-  }, [creatorFilter, endDate, sortBy, startDate, statusFilter, warehouseFilter, paymentMethodFilter, searchQuery]);
+  }, [creatorFilter, endDate, sortBy, startDate, statusFilter, warehouseFilter, paymentMethodFilter, productFilter, giftFilter, itemMatch, searchQuery]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -319,8 +343,39 @@ export default function OlahanPage() {
       }
     };
 
+    // status=all supaya produk/hadiah nonaktif tetap bisa dipakai memfilter order lama.
+    const loadProducts = async () => {
+      try {
+        const response = await fetch('/api/products?status=all', { cache: 'no-store' });
+        const json: { success: boolean; data?: ProductFilterOption[]; message?: string } = await response.json();
+
+        if (!isMounted) return;
+        if (!json.success || !json.data) throw new Error(json.message || 'Gagal mengambil data produk');
+
+        setProducts(json.data);
+      } catch (error: unknown) {
+        if (isMounted) Swal.fire('Error', getErrorMessage(error), 'error');
+      }
+    };
+
+    const loadGifts = async () => {
+      try {
+        const response = await fetch('/api/gifts?status=all', { cache: 'no-store' });
+        const json: { success: boolean; data?: GiftFilterOption[]; message?: string } = await response.json();
+
+        if (!isMounted) return;
+        if (!json.success || !json.data) throw new Error(json.message || 'Gagal mengambil data hadiah');
+
+        setGifts(json.data);
+      } catch (error: unknown) {
+        if (isMounted) Swal.fire('Error', getErrorMessage(error), 'error');
+      }
+    };
+
     void loadUsers();
     void loadWarehouses();
+    void loadProducts();
+    void loadGifts();
 
   return () => {
       isMounted = false;
@@ -523,6 +578,9 @@ export default function OlahanPage() {
           creatorName: creatorFilter,
           warehouseId: warehouseFilter,
           paymentMethod: paymentMethodFilter,
+          productId: productFilter,
+          giftName: giftFilter,
+          itemMatch,
           selectedIds: serializeSelectedIds(),
         }),
       });
@@ -553,6 +611,9 @@ export default function OlahanPage() {
           creatorName: creatorFilter,
           warehouseId: warehouseFilter,
           paymentMethod: paymentMethodFilter,
+          productId: productFilter,
+          giftName: giftFilter,
+          itemMatch,
           selectedIds: serializeSelectedIds(),
         }),
       });
@@ -591,6 +652,9 @@ export default function OlahanPage() {
     setDraftCreatorFilter(creatorFilter);
     setDraftWarehouseFilter(warehouseFilter);
     setDraftPaymentMethodFilter(paymentMethodFilter);
+    setDraftProductFilter(productFilter);
+    setDraftGiftFilter(giftFilter);
+    setDraftItemMatch(itemMatch);
     setIsFilterModalOpen(true);
   };
 
@@ -605,6 +669,9 @@ export default function OlahanPage() {
     setCreatorFilter(draftCreatorFilter);
     setWarehouseFilter(draftWarehouseFilter);
     setPaymentMethodFilter(draftPaymentMethodFilter);
+    setProductFilter(draftProductFilter);
+    setGiftFilter(draftGiftFilter);
+    setItemMatch(draftItemMatch);
     setIsFilterModalOpen(false);
   };
 
@@ -615,6 +682,9 @@ export default function OlahanPage() {
     setDraftCreatorFilter([]);
     setDraftWarehouseFilter([]);
     setDraftPaymentMethodFilter([]);
+    setDraftProductFilter([]);
+    setDraftGiftFilter([]);
+    setDraftItemMatch('all');
   };
 
   const clearAllFilters = () => {
@@ -624,6 +694,9 @@ export default function OlahanPage() {
     setCreatorFilter([]);
     setWarehouseFilter([]);
     setPaymentMethodFilter([]);
+    setProductFilter([]);
+    setGiftFilter([]);
+    setItemMatch('all');
     setSearchQuery('');
   };
 
@@ -680,7 +753,13 @@ export default function OlahanPage() {
   const showProcessingAtColumn = sortBy === 'processing_at';
   const showLastUpdateColumn = sortBy === 'last_update';
   const visibleColumnCount = 8 + (showCreatedAtColumn ? 1 : 0) + (showProcessingAtColumn ? 1 : 0) + (showLastUpdateColumn ? 1 : 0);
-  const activeFilterCount = (startDate ? 1 : 0) + (endDate ? 1 : 0) + statusFilter.length + creatorFilter.length + warehouseFilter.length + paymentMethodFilter.length;
+  // Produk dicocokkan lewat ID; hadiah lewat nama (order hanya menyimpan nama hadiah), jadi nama kembar digabung.
+  const productOptions: FilterOption[] = products.map((option) => ({
+    value: String(option.id),
+    label: option.status === 'inactive' ? `${option.product_name} (nonaktif)` : option.product_name,
+  }));
+  const giftOptions: FilterOption[] = [...new Set(gifts.map((option) => option.gift_name))].map((name) => ({ value: name, label: name }));
+  const activeFilterCount =(startDate ? 1 : 0) + (endDate ? 1 : 0) + statusFilter.length + creatorFilter.length + warehouseFilter.length + paymentMethodFilter.length + productFilter.length + giftFilter.length;
 
   // Sama seperti submenu "Data Pesanan" di sidebar — disediakan juga sebagai dropdown di halaman ini.
   const viewValue = searchParams.get('status') === 'problem'
@@ -1066,6 +1145,61 @@ export default function OlahanPage() {
                   className="text-sm text-slate-800"
                   styles={filterSelectStyles}
                 />
+              </div>
+              <div className="w-full">
+                <label className="block text-xs font-semibold text-slate-500 mb-1.5">Produk Utama</label>
+                <Select
+                  isMulti
+                  value={productOptions.filter((option) => draftProductFilter.includes(option.value))}
+                  onChange={(selected) => setDraftProductFilter(selected.map((item) => item.value))}
+                  options={productOptions}
+                  placeholder="Semua Produk"
+                  closeMenuOnSelect={false}
+                  components={{ MultiValue: CompactMultiValue }}
+                  menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined}
+                  className="text-sm text-slate-800"
+                  styles={filterSelectStyles}
+                />
+              </div>
+              <div className="w-full">
+                <label className="block text-xs font-semibold text-slate-500 mb-1.5">Hadiah</label>
+                <Select
+                  isMulti
+                  value={giftOptions.filter((option) => draftGiftFilter.includes(option.value))}
+                  onChange={(selected) => setDraftGiftFilter(selected.map((item) => item.value))}
+                  options={giftOptions}
+                  placeholder="Semua Hadiah"
+                  closeMenuOnSelect={false}
+                  components={{ MultiValue: CompactMultiValue }}
+                  menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined}
+                  className="text-sm text-slate-800"
+                  styles={filterSelectStyles}
+                />
+              </div>
+              <div className="w-full md:col-span-2 -mt-1">
+                <label className="block text-xs font-semibold text-slate-500 mb-1.5">Cara Mencocokkan Produk &amp; Hadiah</label>
+                <div className="inline-flex rounded-lg border border-slate-300 overflow-hidden text-sm font-semibold" role="radiogroup" aria-label="Cara mencocokkan produk dan hadiah">
+                  {([
+                    { value: 'all', label: 'Harus semua' },
+                    { value: 'any', label: 'Salah satu' },
+                  ] as const).map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={draftItemMatch === option.value}
+                      onClick={() => setDraftItemMatch(option.value)}
+                      className={`px-4 py-2 transition-colors ${draftItemMatch === option.value ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-500 mt-1.5">
+                  {draftItemMatch === 'all'
+                    ? 'Order harus memuat semua produk (dan semua hadiah) yang dipilih.'
+                    : 'Order cukup memuat salah satu produk (atau salah satu hadiah) yang dipilih.'}
+                </p>
               </div>
             </div>
             <div className="px-6 py-4 border-t border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">

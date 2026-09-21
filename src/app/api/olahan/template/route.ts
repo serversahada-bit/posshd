@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 
 import prisma from '@/lib/db';
 import { buildOrderExportFilterSummary, getDateRangeFromRows, logExportActivity } from '@/lib/exportLog';
+import { buildOrderItemFilterCondition, parseItemMatchMode } from '@/lib/olahanItemFilter';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,8 +25,10 @@ const toList = (value: FilterValue): string[] => {
   return value ? [value] : [];
 };
 
-const buildCondition = (payload: { startDate?: string; endDate?: string; status?: FilterValue; creatorName?: FilterValue; warehouseId?: FilterValue; paymentMethod?: FilterValue; selectedIds?: string }) => {
-  const { startDate, endDate, status, creatorName, warehouseId, paymentMethod, selectedIds } = payload;
+type FilterPayload = { startDate?: string; endDate?: string; status?: FilterValue; creatorName?: FilterValue; warehouseId?: FilterValue; paymentMethod?: FilterValue; productId?: FilterValue; giftName?: FilterValue; itemMatch?: string; selectedIds?: string };
+
+const buildCondition = (payload: FilterPayload) => {
+  const { startDate, endDate, status, creatorName, warehouseId, paymentMethod, productId, giftName, itemMatch, selectedIds } = payload;
   const statusList = toList(status);
   const creatorNameList = toList(creatorName);
   const warehouseIdList = toList(warehouseId);
@@ -81,12 +84,16 @@ const buildCondition = (payload: { startDate?: string; endDate?: string; status?
     params.push(...paymentMethodList);
   }
 
+  const itemFilter = buildOrderItemFilterCondition({ productIds: toList(productId).map(String), giftNames: toList(giftName), matchMode: parseItemMatchMode(itemMatch) },'combined_orders.order_id');
+  conditionQuery += itemFilter.conditionQuery;
+  params.push(...itemFilter.params);
+
   return { conditionQuery, params };
 };
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { startDate?: string; endDate?: string; status?: FilterValue; creatorName?: FilterValue; warehouseId?: FilterValue; paymentMethod?: FilterValue; selectedIds?: string };
+    const body = await request.json() as FilterPayload;
     const { conditionQuery, params } = buildCondition(body);
 
     const query = `

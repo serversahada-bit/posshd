@@ -68,6 +68,9 @@ export type OrderExportFilters = {
   creatorName?: FilterValue;
   warehouseId?: FilterValue;
   paymentMethod?: FilterValue;
+  productId?: FilterValue;
+  giftName?: FilterValue;
+  itemMatch?: string;
   selectedIds?: string;
 };
 
@@ -120,6 +123,9 @@ export async function buildOrderExportFilterSummary(
 
   const parts: string[] = [];
 
+  // Mode pencocokan hanya berarti kalau ada lebih dari satu item yang dipilih. Bawaannya "semua" (lihat olahanItemFilter).
+  const matchModeLabel = (selectedCount: number) => (selectedCount > 1 ? (filters.itemMatch === 'any' ? ' (salah satu)' : ' (semua)') : '');
+
   if (filters.startDate || filters.endDate) {
     parts.push(`Periode: ${filters.startDate || '-'} s/d ${filters.endDate || '-'}`);
   } else if (fallbackDateRange) {
@@ -152,6 +158,24 @@ export async function buildOrderExportFilterSummary(
   const paymentMethodList = toList(filters.paymentMethod);
   if (paymentMethodList.length > 0) {
     parts.push(`Metode Bayar: ${paymentMethodList.map((method) => PAYMENT_METHOD_LABELS[method] || method).join(', ')}`);
+  }
+
+  const productIdList = toList(filters.productId);
+  if (productIdList.length > 0) {
+    const numericIds = productIdList.map((id) => Number(id)).filter((id) => Number.isFinite(id));
+    const products = numericIds.length > 0
+      ? await prisma.products.findMany({
+          where: { id: { in: numericIds } },
+          select: { id: true, product_name: true },
+        })
+      : [];
+    const productNameMap = new Map(products.map((product) => [product.id, product.product_name]));
+    parts.push(`Produk Utama${matchModeLabel(productIdList.length)}: ${productIdList.map((id) => productNameMap.get(Number(id)) || id).join(', ')}`);
+  }
+
+  const giftNameList = toList(filters.giftName);
+  if (giftNameList.length > 0) {
+    parts.push(`Hadiah${matchModeLabel(giftNameList.length)}: ${giftNameList.join(', ')}`);
   }
 
   return parts.length > 0 ? parts.join(' | ') : 'Tanpa filter (semua data)';
