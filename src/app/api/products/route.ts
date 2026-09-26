@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { emitEvent } from '@/lib/socket-server';
 import { products_status } from '@prisma/client';
 import { deleteStoredUpload, saveUploadBuffer } from '@/lib/uploadStorage';
 
@@ -126,7 +125,6 @@ export async function POST(request: NextRequest) {
           image_url: imageUrl
         }
       });
-      await emitEvent('REFRESH_PRODUCTS');
       return NextResponse.json({ success: true, message: 'Produk baru berhasil ditambahkan.' });
     } else if (act === 'update') {
       if (!id || !product_name || !sku) {
@@ -156,7 +154,6 @@ export async function POST(request: NextRequest) {
           image_url: imageUrl
         }
       });
-      await emitEvent('REFRESH_PRODUCTS');
       return NextResponse.json({ success: true, message: 'Informasi produk berhasil diperbarui.' });
     } else if (act === 'delete') {
       const pid = Number(id);
@@ -171,7 +168,6 @@ export async function POST(request: NextRequest) {
       }
 
       await prisma.products.delete({ where: { id: pid } });
-      await emitEvent('REFRESH_PRODUCTS');
       return NextResponse.json({ success: true, message: 'Produk berhasil dihapus.' });
     }
 
@@ -203,7 +199,6 @@ export async function PUT(request: NextRequest) {
       },
     });
 
-    await emitEvent('REFRESH_PRODUCTS');
     return NextResponse.json({ success: true, message: 'Produk berhasil diperbarui' });
   } catch (error) {
     console.error('[API /products PUT]', error);
@@ -224,8 +219,6 @@ export async function DELETE(request: NextRequest) {
       where: { id: Number(id) },
       data: { status: 'inactive' },
     });
-
-    await emitEvent('REFRESH_PRODUCTS');
 
     return NextResponse.json({ success: true, message: 'Produk berhasil dinonaktifkan' });
   } catch (error) {

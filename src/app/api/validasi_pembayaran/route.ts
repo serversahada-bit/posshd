@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import prisma from '@/lib/db';
-import { emitEvent } from '@/lib/socket-server';
 import { hasColumn } from '@/lib/orderTimestamps';
 import { logOrderStatusChange } from '@/lib/orderStatusLog';
 
@@ -309,8 +308,6 @@ export async function POST(request: NextRequest) {
         ipAddress,
       });
 
-      await emitEvent('NEW_OLAHAN');
-
       return NextResponse.json({ status: 'success', message: 'Pembayaran berhasil divalidasi FAT.' });
     }
 
@@ -357,8 +354,6 @@ export async function POST(request: NextRequest) {
         details: `Tolak pembayaran${rejectOrderMarker}${reject_reason ? ` - Alasan: ${reject_reason}` : ''}`,
         ipAddress,
       });
-
-      await emitEvent('NEW_OLAHAN');
 
       return NextResponse.json({ status: 'success', message: 'Pembayaran ditolak.' });
     }

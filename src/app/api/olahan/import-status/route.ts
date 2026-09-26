@@ -4,7 +4,6 @@ import { Prisma, orders_cso_order_status, orders_crm_order_status, orders_order_
 import { Buffer } from 'node:buffer';
 
 import prisma from '@/lib/db';
-import { emitEvent } from '@/lib/socket-server';
 import { syncOrderTimestampColumns } from '@/lib/orderTimestamps';
 import { logOrderStatusChange } from '@/lib/orderStatusLog';
 
@@ -214,8 +213,6 @@ export async function POST(request: Request) {
         });
       }
     });
-
-    await emitEvent('REFRESH_OLAHAN');
 
     return NextResponse.json({
       status: 'success',

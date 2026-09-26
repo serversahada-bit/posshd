@@ -1,6 +1,5 @@
 import { NextRequest } from 'next/server';
 import prisma from '@/lib/db';
-import { emitEvent } from '@/lib/socket-server';
 import { orders_order_status, orders_order_type, payments_payment_method } from '@prisma/client';
 import { cookies } from 'next/headers';
 import { syncOrderTimestampColumns } from '@/lib/orderTimestamps';
@@ -154,9 +153,6 @@ export async function POST(request: NextRequest) {
     await syncOrderTimestampColumns(prisma, 'orders', order.id, 'pending', eventAt);
     await logOrderCreated(prisma, { userId: createdByUserId, orderCode: order.order_code, source: 'CSO', toStatus: 'pending', ipAddress });
 
-    await emitEvent('NEW_ORDER');
-    await emitEvent('REFRESH_OLAHAN');
-
     return Response.json({
       success: true,
       message: 'Pesanan berhasil dibuat',
@@ -198,14 +194,10 @@ export async function PATCH(request: NextRequest) {
       await logOrderStatusChange(prisma, { userId, orderCode: existingOrder.order_code, source: 'CSO', fromStatus: existingOrder.order_status, toStatus: order_status, ipAddress });
     }
 
-    await emitEvent('NEW_ORDER');
-    await emitEvent('REFRESH_OLAHAN');
-
     return Response.json({ success: true, message: 'Status pesanan diperbarui' });
   } catch (error) {
     console.error('[API /orders PATCH]', error);
     return Response.json({ success: false, message: 'Gagal memperbarui status' }, { status: 500 });
   }
 }
-
 

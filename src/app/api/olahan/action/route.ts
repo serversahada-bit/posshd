@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { emitEvent } from '@/lib/socket-server';
 import { syncOrderTimestampColumns } from '@/lib/orderTimestamps';
 import { logOrderStatusChange } from '@/lib/orderStatusLog';
 
@@ -267,8 +266,6 @@ export async function POST(request: Request) {
         }
       });
 
-      await emitEvent('REFRESH_OLAHAN');
-
       return NextResponse.json({ status: 'success', message: `Berhasil update status ${count} pesanan.` });
     }
 
@@ -289,8 +286,6 @@ export async function POST(request: Request) {
           });
         }
       });
-
-      await emitEvent('REFRESH_OLAHAN');
 
       return NextResponse.json({ status: 'success', message: `Berhasil menghapus ${count} pesanan.` });
     }

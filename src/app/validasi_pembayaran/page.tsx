@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useSocketEvent } from '@/hooks/useSocketEvent';
 import { useAuth } from '@/contexts/AuthContext';
 import Swal from 'sweetalert2';
 import { ExternalLink, Check, X } from 'lucide-react';
@@ -64,10 +63,6 @@ export default function ValidasiPembayaranPage() {
   useEffect(() => {
     fetchOrders();
   }, []);
-
-  useSocketEvent('NEW_ORDER', () => {
-    fetchOrders();
-  });
 
   // Handle ID Reff check
   useEffect(() => {

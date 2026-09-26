@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { useSocketEvent } from '@/hooks/useSocketEvent';
 import {
     type LucideIcon,
     LayoutDashboard,
@@ -105,21 +104,6 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
     onClose();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
-
-  useSocketEvent('NEW_ORDER', () => {
-    const audio = new Audio('/notif.mp3');
-    audio.play().catch(e => console.error(e));
-  });
-
-  useSocketEvent('NEW_OLAHAN', () => {
-    const audio = new Audio('/notif.mp3');
-    audio.play().catch(e => console.error('Audio play error (requires user interaction first):', e));
-    void fetchProblemCount();
-  });
-
-  useSocketEvent('REFRESH_OLAHAN', () => {
-    void fetchProblemCount();
-  });
 
   const roleInitial = user?.name?.charAt(0)?.toUpperCase() || 'A';
   const userRole = user?.role ?? '';

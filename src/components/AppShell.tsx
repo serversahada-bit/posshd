@@ -5,8 +5,6 @@ import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import Sidebar from '@/components/Sidebar';
-import RealtimeConnection from '@/components/RealtimeConnection';
-import { disconnectSocket } from '@/lib/socket';
 
 const PUBLIC_ROUTES = ['/login'];
 
@@ -29,12 +27,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [isAuthenticated, isPublicRoute, isReady, router]);
 
-  useEffect(() => {
-    if (!isReady || !isAuthenticated || isPublicRoute) {
-      disconnectSocket();
-    }
-  }, [isAuthenticated, isPublicRoute, isReady]);
-
   if (isPublicRoute) {
     return <>{children}</>;
   }
@@ -53,7 +45,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   if (isFullScreenRoute) {
     return (
       <div className="min-h-screen bg-white">
-        <RealtimeConnection />
         {children}
       </div>
     );
@@ -61,7 +52,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="app-shell">
-      <RealtimeConnection />
       <Sidebar isOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />
 
       <div className="app-shell__content">

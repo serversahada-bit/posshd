@@ -4,7 +4,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Swal from 'sweetalert2';
 import { Check, Edit2, Image as ImageIcon, Layers, Package2, Plus, Trash2, X } from 'lucide-react';
-import { useSocketEvent } from '@/hooks/useSocketEvent';
 
 type BundleStatus = 'active' | 'inactive';
 

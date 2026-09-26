@@ -8,7 +8,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Select, { components, type MultiValueProps } from 'react-select';
 
 import { useAuth } from '@/contexts/AuthContext';
-import { useSocketEvent } from '@/hooks/useSocketEvent';
 import type { ItemMatchMode } from '@/lib/olahanItemFilter';
 
 type OrderItem = {
@@ -297,20 +296,6 @@ export default function OlahanPage() {
   useEffect(() => {
     void fetchProblemCount();
   }, [fetchProblemCount]);
-
-  useSocketEvent('NEW_OLAHAN', () => {
-    void fetchData();
-    void fetchProblemCount();
-  });
-
-  useSocketEvent('REFRESH_OLAHAN', () => {
-    void fetchData();
-    void fetchProblemCount();
-  });
-
-  useSocketEvent('NEW_ORDER', () => {
-    void fetchData();
-  });
 
   useEffect(() => {
     let isMounted = true;

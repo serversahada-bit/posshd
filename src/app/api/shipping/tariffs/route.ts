@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import prisma from '@/lib/db';
 import * as xlsx from 'xlsx';
-import { emitEvent } from '@/lib/socket-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -153,7 +152,6 @@ export async function POST(request: NextRequest) {
 
       if (action === 'import_csv') {
         const count = await handleImport(formData);
-        await emitEvent('REFRESH_ONGKIR');
         return NextResponse.json({ success: true, message: `Berhasil mengimpor ${count} baris tarif ongkir dari CSV.` });
       }
 
@@ -163,10 +161,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const action = String(body?.action || '');
 
-    
     if (action === 'truncate') {
       await prisma.tarif_pengiriman.deleteMany();
-      await emitEvent('REFRESH_ONGKIR');
       return NextResponse.json({ success: true, message: 'Semua data tarif ongkir berhasil dikosongkan.' });
     }
 
@@ -195,7 +191,6 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      await emitEvent('REFRESH_ONGKIR');
       return NextResponse.json({ success: true, message: 'Tarif ongkir baru berhasil ditambahkan.' });
     }
 
@@ -226,7 +221,6 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      await emitEvent('REFRESH_ONGKIR');
       return NextResponse.json({ success: true, message: 'Informasi tarif ongkir berhasil diperbarui.' });
     }
 
@@ -237,7 +231,6 @@ export async function POST(request: NextRequest) {
       }
 
       await prisma.tarif_pengiriman.delete({ where: { id } });
-      await emitEvent('REFRESH_ONGKIR');
       return NextResponse.json({ success: true, message: 'Tarif ongkir berhasil dihapus.' });
     }
 
@@ -269,7 +262,6 @@ export async function POST(request: NextRequest) {
         )
       );
 
-      await emitEvent('REFRESH_ONGKIR');
       return NextResponse.json({ success: true, message: `Berhasil memperbarui nama tujuan untuk ${selectedIds.length} tarif ongkir.` });
     }
 

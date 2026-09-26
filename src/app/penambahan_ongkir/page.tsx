@@ -4,7 +4,6 @@ import React, { useEffect, useState } from 'react';
 import AsyncCreatableSelect from 'react-select/async-creatable';
 import Swal from 'sweetalert2';
 import { Download, Edit2, FileUp, PencilLine, Plus, Search, Trash2, X } from 'lucide-react';
-import { useSocketEvent } from '@/hooks/useSocketEvent';
 
 type CourierOption = {
   courier_name: string | null;
@@ -152,10 +151,6 @@ export default function PenambahanOngkirPage() {
       isMounted = false;
     };
   }, []);
-
-  useSocketEvent('REFRESH_ONGKIR', () => {
-    void fetchTariffs(page, query);
-  });
 
   const resetForm = () => {
     setEditId(null);

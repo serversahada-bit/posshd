@@ -5,7 +5,6 @@ import prisma from '@/lib/db';
 import { saveUploadBuffer } from '@/lib/uploadStorage';
 import { syncOrderTimestampColumns } from '@/lib/orderTimestamps';
 import { logOrderStatusChange } from '@/lib/orderStatusLog';
-import { emitEvent } from '@/lib/socket-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -188,8 +187,6 @@ export async function POST(request: Request) {
 
       messages.push(`Order ${order.order_code} berhasil diretur (status: Retur/RTS).`);
     });
-
-    await emitEvent('REFRESH_OLAHAN');
 
     return NextResponse.json({ success: true, message: messages.join(' ') });
   } catch (error: unknown) {

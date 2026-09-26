@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Prisma, product_bundles_status } from '@prisma/client';
 
 import prisma from '@/lib/db';
-import { emitEvent } from '@/lib/socket-server';
 import { deleteStoredUpload, saveUploadBuffer } from '@/lib/uploadStorage';
 
 export const dynamic = 'force-dynamic';
@@ -164,7 +163,6 @@ export async function POST(request: NextRequest) {
         });
       });
 
-      await emitEvent('REFRESH_BUNDLES');
       return NextResponse.json({ success: true, message: 'Bundling baru berhasil ditambahkan.' });
     }
 
@@ -215,7 +213,6 @@ export async function POST(request: NextRequest) {
         });
       });
 
-      await emitEvent('REFRESH_BUNDLES');
       return NextResponse.json({ success: true, message: 'Informasi bundling berhasil diperbarui.' });
     }
 
@@ -235,7 +232,6 @@ export async function POST(request: NextRequest) {
       }
 
       await prisma.product_bundles.delete({ where: { id } });
-      await emitEvent('REFRESH_BUNDLES');
       return NextResponse.json({ success: true, message: 'Bundling berhasil dihapus.' });
     }
 
