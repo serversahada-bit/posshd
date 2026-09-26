@@ -3,7 +3,6 @@ import prisma from '@/lib/db';
 import { Prisma } from '@prisma/client';
 import { join } from 'path';
 import crypto from 'crypto';
-import { emitEvent } from '@/lib/socket-server';
 import { cookies } from 'next/headers';
 import { hasColumn, syncOrderTimestampColumns } from '@/lib/orderTimestamps';
 import { logOrderCreated } from '@/lib/orderStatusLog';
@@ -267,11 +266,20 @@ export async function POST(request: Request) {
         if (resolvedItem.kind === 'gift') {
           name = resolvedItem.name;
           totalWeightGrams += resolvedItem.weightGram * qty;
+          // Kunci baris & cek stok tersedia dulu supaya tidak minus.
           if (warehouseId) {
-            await tx.warehouse_gift_stock.updateMany({
-              where: { gift_id: pId, warehouse_id: warehouseId },
-              data: { stock: { decrement: qty } },
-            });
+            const giftStockRow = (await tx.$queryRawUnsafe<Array<{ stock: number }>>(
+              'SELECT stock FROM warehouse_gift_stock WHERE gift_id = ? AND warehouse_id = ? FOR UPDATE',
+              pId, warehouseId,
+            ))[0];
+            const availableGiftStock = Number(giftStockRow?.stock ?? 0);
+            if (availableGiftStock < qty) {
+              throw new Error(`Stok hadiah "${name}" tidak mencukupi (tersedia ${availableGiftStock})`);
+            }
+            await tx.$executeRawUnsafe(
+              'UPDATE warehouse_gift_stock SET stock = stock - ? WHERE gift_id = ? AND warehouse_id = ?',
+              qty, pId, warehouseId,
+            );
           }
         } else if (resolvedItem.kind === 'bundle') {
           name = resolvedItem.name;
@@ -282,10 +290,18 @@ export async function POST(request: Request) {
             const deductQty = item.qtyPerBundle * bundlesBought;
             totalWeightGrams += item.weightGram * deductQty;
             if (warehouseId) {
-              await tx.warehouse_stock.updateMany({
-                where: { product_id: item.productId, warehouse_id: warehouseId },
-                data: { stock: { decrement: deductQty } },
-              });
+              const productStockRow = (await tx.$queryRawUnsafe<Array<{ stock: number }>>(
+                'SELECT stock FROM warehouse_stock WHERE product_id = ? AND warehouse_id = ? FOR UPDATE',
+                item.productId, warehouseId,
+              ))[0];
+              const availableProductStock = Number(productStockRow?.stock ?? 0);
+              if (availableProductStock < deductQty) {
+                throw new Error(`Stok komponen bundling "${item.productName}" tidak mencukupi (tersedia ${availableProductStock})`);
+              }
+              await tx.$executeRawUnsafe(
+                'UPDATE warehouse_stock SET stock = stock - ? WHERE product_id = ? AND warehouse_id = ?',
+                deductQty, item.productId, warehouseId,
+              );
             }
 
             await tx.order_items_cso.create({
@@ -307,10 +323,18 @@ export async function POST(request: Request) {
           name = resolvedItem.name;
           totalWeightGrams += resolvedItem.weightGram * qty;
           if (warehouseId) {
-            await tx.warehouse_stock.updateMany({
-              where: { product_id: pId, warehouse_id: warehouseId },
-              data: { stock: { decrement: qty } },
-            });
+            const productStockRow = (await tx.$queryRawUnsafe<Array<{ stock: number }>>(
+              'SELECT stock FROM warehouse_stock WHERE product_id = ? AND warehouse_id = ? FOR UPDATE',
+              pId, warehouseId,
+            ))[0];
+            const availableProductStock = Number(productStockRow?.stock ?? 0);
+            if (availableProductStock < qty) {
+              throw new Error(`Stok produk "${name}" tidak mencukupi (tersedia ${availableProductStock})`);
+            }
+            await tx.$executeRawUnsafe(
+              'UPDATE warehouse_stock SET stock = stock - ? WHERE product_id = ? AND warehouse_id = ?',
+              qty, pId, warehouseId,
+            );
           }
         }
 
@@ -399,9 +423,6 @@ export async function POST(request: Request) {
 
       return order;
     });
-
-    await emitEvent('NEW_ORDER');
-    await emitEvent('REFRESH_OLAHAN');
 
     return NextResponse.json({
       status: 'success',

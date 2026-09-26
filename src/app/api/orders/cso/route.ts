@@ -3,7 +3,6 @@ import prisma from '@/lib/db';
 import { join } from 'path';
 import crypto from 'crypto';
 import { cookies } from 'next/headers';
-import { emitEvent } from '@/lib/socket-server';
 import { resolveOrderItem } from '@/lib/orderItems';
 import { upsertCustomerAddressSnapshot } from '@/lib/customerAddress';
 import { splitRegionParts } from '@/lib/address';
@@ -207,12 +206,21 @@ export async function POST(request: Request) {
         if (resolvedItem.kind === 'gift') {
           name = resolvedItem.name;
           totalWeightGrams += resolvedItem.weightGram * qty;
-          // Deduct gift stock
+          // Deduct gift stock — kunci baris & cek stok tersedia dulu supaya tidak minus
+          // (order konkuren/data stok basi di form tidak bisa lolos memotong lebih dari stok riil).
           if (warehouseId) {
-            await tx.warehouse_gift_stock.updateMany({
-              where: { gift_id: pId, warehouse_id: warehouseId },
-              data: { stock: { decrement: qty } },
-            });
+            const giftStockRow = (await tx.$queryRawUnsafe<Array<{ stock: number }>>(
+              'SELECT stock FROM warehouse_gift_stock WHERE gift_id = ? AND warehouse_id = ? FOR UPDATE',
+              pId, warehouseId,
+            ))[0];
+            const availableGiftStock = Number(giftStockRow?.stock ?? 0);
+            if (availableGiftStock < qty) {
+              throw new Error(`Stok hadiah "${name}" tidak mencukupi (tersedia ${availableGiftStock})`);
+            }
+            await tx.$executeRawUnsafe(
+              'UPDATE warehouse_gift_stock SET stock = stock - ? WHERE gift_id = ? AND warehouse_id = ?',
+              qty, pId, warehouseId,
+            );
           }
         } else if (resolvedItem.kind === 'bundle') {
           const bundleTotalQty = resolvedItem.components.reduce((sum, item) => sum + item.qtyPerBundle, 0);
@@ -222,10 +230,18 @@ export async function POST(request: Request) {
             const deductQty = item.qtyPerBundle * bundlesBought;
             totalWeightGrams += item.weightGram * deductQty;
             if (warehouseId) {
-              await tx.warehouse_stock.updateMany({
-                where: { product_id: item.productId, warehouse_id: warehouseId },
-                data: { stock: { decrement: deductQty } },
-              });
+              const productStockRow = (await tx.$queryRawUnsafe<Array<{ stock: number }>>(
+                'SELECT stock FROM warehouse_stock WHERE product_id = ? AND warehouse_id = ? FOR UPDATE',
+                item.productId, warehouseId,
+              ))[0];
+              const availableProductStock = Number(productStockRow?.stock ?? 0);
+              if (availableProductStock < deductQty) {
+                throw new Error(`Stok komponen bundling "${item.productName}" tidak mencukupi (tersedia ${availableProductStock})`);
+              }
+              await tx.$executeRawUnsafe(
+                'UPDATE warehouse_stock SET stock = stock - ? WHERE product_id = ? AND warehouse_id = ?',
+                deductQty, item.productId, warehouseId,
+              );
             }
 
             await tx.order_items.create({
@@ -246,12 +262,20 @@ export async function POST(request: Request) {
         } else {
           name = resolvedItem.name;
           totalWeightGrams += resolvedItem.weightGram * qty;
-          // Deduct product stock
+          // Deduct product stock — sama, kunci baris & cek stok dulu.
           if (warehouseId) {
-            await tx.warehouse_stock.updateMany({
-              where: { product_id: pId, warehouse_id: warehouseId },
-              data: { stock: { decrement: qty } },
-            });
+            const productStockRow = (await tx.$queryRawUnsafe<Array<{ stock: number }>>(
+              'SELECT stock FROM warehouse_stock WHERE product_id = ? AND warehouse_id = ? FOR UPDATE',
+              pId, warehouseId,
+            ))[0];
+            const availableProductStock = Number(productStockRow?.stock ?? 0);
+            if (availableProductStock < qty) {
+              throw new Error(`Stok produk "${name}" tidak mencukupi (tersedia ${availableProductStock})`);
+            }
+            await tx.$executeRawUnsafe(
+              'UPDATE warehouse_stock SET stock = stock - ? WHERE product_id = ? AND warehouse_id = ?',
+              qty, pId, warehouseId,
+            );
           }
         }
 
@@ -335,9 +359,6 @@ export async function POST(request: Request) {
 
       return order;
     });
-
-    await emitEvent('NEW_ORDER');
-    await emitEvent('REFRESH_OLAHAN');
 
     // Pesanan ini berasal dari draft Scalev (order_code = ID order Scalev) — dorong balik ke Scalev
     // (lengkapi kurir/gudang/alamat lalu ubah status draft -> pending, lihat syncPosOrderToScalev).
