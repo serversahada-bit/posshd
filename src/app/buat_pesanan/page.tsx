@@ -320,6 +320,35 @@ export default function BuatPesananPage() {
     return 1 + fullSteps + (remainder > tolerance ? 1 : 0);
   };
 
+  // Rumus "Biaya Estimasi FF" (sesuai definisi user, Biaya Gudang sengaja terhitung
+  // dua kali — sekali di dalam Fee COD, sekali lagi di total):
+  //   COD      : Fee COD = ((Harga Barang + (1-Diskon)×Ongkir) × %FeeCOD) + Biaya Gudang
+  //   Selain COD: Fee COD = ((Harga Barang + (1-Diskon)×Ongkir) × 0%)     + Biaya Gudang
+  //   Biaya Estimasi FF = (1-Diskon)×Ongkir + Fee COD + Biaya Gudang
+  // Dipakai untuk teks kecil di samping ongkir asli, dan untuk menentukan kurir mana
+  // yang direkomendasikan (termurah).
+  const getOngkirSettingRow = (courierNameValue: string, originValue: string) =>
+    data?.ongkirSettings?.find((row: any) =>
+      row.courier_code?.toUpperCase() === courierNameValue.toUpperCase() &&
+      row.origin_code?.toLowerCase() === originValue.toLowerCase()
+    );
+
+  const calculateEffectiveOngkir = (rawPrice: number, courierNameValue: string, originValue: string) => {
+    const settingRow = getOngkirSettingRow(courierNameValue, originValue);
+    const discPercent = parseFloat(settingRow?.disc_percent) || 0;
+    const gudangFee = parseFloat(settingRow?.gudang_fee) || 0;
+    const codFeePercent = parseFloat(settingRow?.cod_fee_percent) || 0;
+
+    const ongkirNet = rawPrice - (rawPrice * (discPercent / 100));
+    const codFeeApplied = paymentMethod === 'cod' ? codFeePercent : 0; // selain COD, persentase fee COD dikali 0%
+    // Fee COD sendiri sudah termasuk Biaya Gudang di dalamnya (sesuai definisi user).
+    const feeCod = ((totals.subtotalProducts + ongkirNet) * (codFeeApplied / 100)) + gudangFee;
+    // Biaya Gudang ditambahkan lagi di sini, terpisah dari yang sudah ada di Fee COD.
+    const biayaEstimasiFf = ongkirNet + feeCod + gudangFee;
+
+    return Math.round(biayaEstimasiFf);
+  };
+
   const fetchShippingRates = async () => {
     if (!subdistrict) return;
     try {
@@ -338,11 +367,13 @@ export default function BuatPesananPage() {
           for (const c in od.rates) {
             if (od.rates[c].price > 0) {
               const multi = getShippingWeightMultiplier(c, totals.totalWeight);
+              const price = od.rates[c].price * multi;
               allOpts.push({
                 courierName: c,
                 origin,
                 warehouseId: whIdToUse,
-                price: od.rates[c].price * multi,
+                price,
+                effectiveCost: calculateEffectiveOngkir(price, c, origin),
                 estimation: od.rates[c].estimation,
                 outOfStock: !isAvailable,
                 outOfCoverage: od.rates[c].out_of_coverage
@@ -357,7 +388,7 @@ export default function BuatPesananPage() {
           const bOoc = b.outOfCoverage?.trim().toUpperCase() || '';
           if (aOoc === 'ALL' && bOoc !== 'ALL') return -1;
           if (aOoc !== 'ALL' && bOoc === 'ALL') return 1;
-          return a.price - b.price;
+          return a.effectiveCost - b.effectiveCost; // rekomendasi termurah pakai biaya efektif, bukan ongkir mentah
         });
 
         setAvailableCouriers(allOpts);
@@ -383,7 +414,9 @@ export default function BuatPesananPage() {
     if (subdistrict && cart.length > 0) {
       fetchShippingRates();
     }
-  }, [subdistrict, totals.totalWeight, cart.length]);
+    // paymentMethod ikut jadi dependency karena biaya efektif (fee COD) berubah
+    // tergantung metode pembayaran yang dipilih.
+  }, [subdistrict, totals.totalWeight, cart.length, paymentMethod]);
 
   useEffect(() => {
     const selectedCourierOpt = availableCouriers.find(c => c.warehouseId === warehouseId && c.courierName === courierName);
@@ -882,7 +915,14 @@ export default function BuatPesananPage() {
                         })()}
                       </p>
                       <p className="text-sm text-slate-600 mt-1">Gudang Asal: <strong>{selectedWarehouseData?.warehouse_name}</strong></p>
-                      <p className="text-sm font-bold text-purple-500 mt-2">Biaya Ongkir: Rp {formatCurrency(shippingCost)}</p>
+                      <p className="text-sm font-bold text-purple-500 mt-2">
+                        Biaya Ongkir: Rp {formatCurrency(shippingCost)}
+                        {(() => {
+                          const selectedOpt = availableCouriers.find(c => c.warehouseId === warehouseId && c.courierName === courierName);
+                          if (!selectedOpt) return null;
+                          return <span className="ml-1.5 text-[11px] font-medium text-transparent select-text">(estimasi FF: Rp {formatCurrency(selectedOpt.effectiveCost)})</span>;
+                        })()}
+                      </p>
                     </div>
                   </div>
                 ) : (
@@ -1173,7 +1213,10 @@ export default function BuatPesananPage() {
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold ml-2 ${c.outOfCoverage?.trim().toUpperCase() === 'ALL' ? 'bg-emerald-100 text-emerald-700' : c.outOfCoverage?.trim().toUpperCase() === 'TF' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>Ketersediaan Pembayaran : {c.outOfCoverage || 'KOSONG'}</span>
                     </p>
                     <p className="text-xs text-slate-500 mt-1">Estimasi: {c.estimation || 'Reguler'}</p>
-                    <p className="font-bold text-purple-500 mt-2">Rp {formatCurrency(c.price)}</p>
+                    <p className="font-bold text-purple-500 mt-2">
+                      Rp {formatCurrency(c.price)}
+                      <span className="ml-1.5 text-[11px] font-medium text-transparent select-text">(estimasi FF: Rp {formatCurrency(c.effectiveCost)})</span>
+                    </p>
                     {c.outOfStock && <p className="text-[10px] text-red-500 font-bold mt-1">Stok Habis di Gudang Ini</p>}
                   </div>
                 </label>
