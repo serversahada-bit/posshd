@@ -179,10 +179,11 @@ const buildCodCheck = (paymentMethod: string, codValue: number, totalProductPric
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { startDate, endDate, status, creatorName, warehouseId, selectedIds } = body;
+    const { startDate, endDate, status, creatorName, warehouseId, courierName, selectedIds } = body;
     const statusList: string[] = Array.isArray(status) ? status.filter(Boolean) : (status ? [status] : []);
     const creatorNameList: string[] = Array.isArray(creatorName) ? creatorName.filter(Boolean) : (creatorName ? [creatorName] : []);
     const warehouseIdList: string[] = Array.isArray(warehouseId) ? warehouseId.filter(Boolean) : (warehouseId ? [warehouseId] : []);
+    const courierNameList: string[] = Array.isArray(courierName) ? courierName.filter(Boolean) : (courierName ? [courierName] : []);
 
     const [
       ordersHasPendingAt,
@@ -294,6 +295,10 @@ export async function POST(request: Request) {
       if (warehouseIdList.length > 0) {
         conditionQuery += ` AND warehouse_id IN (${warehouseIdList.map(() => '?').join(',')})`;
         params.push(...warehouseIdList);
+      }
+      if (courierNameList.length > 0) {
+        conditionQuery += ` AND courier_name IN (${courierNameList.map(() => '?').join(',')})`;
+        params.push(...courierNameList);
       }
     }
 
@@ -829,7 +834,7 @@ export async function POST(request: Request) {
     const timestampName = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 
     const fallbackDateRange = getDateRangeFromRows(orders, (order) => order.created_at);
-    const filterSummary = await buildOrderExportFilterSummary({ startDate, endDate, status, creatorName, warehouseId, selectedIds }, fallbackDateRange);
+    const filterSummary = await buildOrderExportFilterSummary({ startDate, endDate, status, creatorName, warehouseId, courierName, selectedIds }, fallbackDateRange);
     await logExportActivity({
       request,
       target: 'Data Lengkap Customer',

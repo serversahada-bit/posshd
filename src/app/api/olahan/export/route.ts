@@ -150,11 +150,12 @@ const formatNinjaDateTime = (value: unknown): string => {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { startDate, endDate, status, creatorName, warehouseId, paymentMethod, productId, giftName, itemMatch, selectedIds } = body;
+    const { startDate, endDate, status, creatorName, warehouseId, paymentMethod, courierName, productId, giftName, itemMatch, selectedIds } = body;
     const statusList: string[] = Array.isArray(status) ? status.filter(Boolean) : (status ? [status] : []);
     const creatorNameList: string[] = Array.isArray(creatorName) ? creatorName.filter(Boolean) : (creatorName ? [creatorName] : []);
     const warehouseIdList: string[] = Array.isArray(warehouseId) ? warehouseId.filter(Boolean) : (warehouseId ? [warehouseId] : []);
     const paymentMethodList: string[] = Array.isArray(paymentMethod) ? paymentMethod.filter(Boolean) : (paymentMethod ? [paymentMethod] : []);
+    const courierNameList: string[] = Array.isArray(courierName) ? courierName.filter(Boolean) : (courierName ? [courierName] : []);
     const productIdList: string[] = Array.isArray(productId) ? productId.filter(Boolean).map(String) : (productId ? [String(productId)] : []);
     const giftNameList: string[] = Array.isArray(giftName) ? giftName.filter(Boolean) : (giftName ? [giftName] : []);
 
@@ -278,6 +279,10 @@ export async function POST(request: Request) {
       if (paymentMethodList.length > 0) {
         conditionQuery += ` AND payment_method IN (${paymentMethodList.map(() => '?').join(',')})`;
         params.push(...paymentMethodList);
+      }
+      if (courierNameList.length > 0) {
+        conditionQuery += ` AND courier_name IN (${courierNameList.map(() => '?').join(',')})`;
+        params.push(...courierNameList);
       }
       const itemFilter = buildOrderItemFilterCondition({ productIds: productIdList, giftNames: giftNameList, matchMode: parseItemMatchMode(itemMatch) },'combined_orders.id');
       conditionQuery += itemFilter.conditionQuery;
@@ -700,7 +705,7 @@ export async function POST(request: Request) {
     const timestampName = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 
     const fallbackDateRange = getDateRangeFromRows(orders, (order) => order.created_at);
-    const filterSummary = await buildOrderExportFilterSummary({ startDate, endDate, status, creatorName, warehouseId, paymentMethod, productId, giftName, itemMatch, selectedIds }, fallbackDateRange);
+    const filterSummary = await buildOrderExportFilterSummary({ startDate, endDate, status, creatorName, warehouseId, paymentMethod, courierName, productId, giftName, itemMatch, selectedIds }, fallbackDateRange);
     await logExportActivity({
       request,
       target: 'Data Pesanan Olahan',

@@ -170,6 +170,7 @@ export default function OlahanPage() {
   const [creatorFilter, setCreatorFilter] = useState<string[]>([]);
   const [warehouseFilter, setWarehouseFilter] = useState<string[]>([]);
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<string[]>([]);
+  const [courierFilter, setCourierFilter] = useState<string[]>([]);
   const [productFilter, setProductFilter] = useState<string[]>([]);
   const [giftFilter, setGiftFilter] = useState<string[]>([]);
   const [itemMatch, setItemMatch] = useState<ItemMatchMode>('all');
@@ -182,6 +183,7 @@ export default function OlahanPage() {
   const [draftCreatorFilter, setDraftCreatorFilter] = useState<string[]>([]);
   const [draftWarehouseFilter, setDraftWarehouseFilter] = useState<string[]>([]);
   const [draftPaymentMethodFilter, setDraftPaymentMethodFilter] = useState<string[]>([]);
+  const [draftCourierFilter, setDraftCourierFilter] = useState<string[]>([]);
   const [draftProductFilter, setDraftProductFilter] = useState<string[]>([]);
   const [draftGiftFilter, setDraftGiftFilter] = useState<string[]>([]);
   const [draftItemMatch, setDraftItemMatch] = useState<ItemMatchMode>('all');
@@ -194,6 +196,7 @@ export default function OlahanPage() {
   const sortBy = sortByParam;
   const [users, setUsers] = useState<UserFilterOption[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseFilterOption[]>([]);
+  const [courierOptions, setCourierOptions] = useState<string[]>([]);
   const [products, setProducts] = useState<ProductFilterOption[]>([]);
   const [gifts, setGifts] = useState<GiftFilterOption[]>([]);
 
@@ -215,6 +218,7 @@ export default function OlahanPage() {
       creatorFilter.forEach((value) => query.append('creator_name', value));
       warehouseFilter.forEach((value) => query.append('warehouse_id', value));
       paymentMethodFilter.forEach((value) => query.append('payment_method', value));
+      courierFilter.forEach((value) => query.append('courier_name', value));
       productFilter.forEach((value) => query.append('product_id', value));
       giftFilter.forEach((value) => query.append('gift_name', value));
       query.append('item_match', itemMatch);
@@ -242,7 +246,7 @@ export default function OlahanPage() {
         setTotal(null);
       }
     }
-  }, [creatorFilter, endDate, sortBy, startDate, statusFilter, warehouseFilter, paymentMethodFilter, productFilter, giftFilter, itemMatch, searchQuery]);
+  }, [creatorFilter, endDate, sortBy, startDate, statusFilter, warehouseFilter, paymentMethodFilter, courierFilter, productFilter, giftFilter, itemMatch, searchQuery]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -328,6 +332,22 @@ export default function OlahanPage() {
       }
     };
 
+    // Daftar ekspedisi diambil dari nama kurir yang benar-benar tersimpan di order,
+    // bukan dari tabel couriers — lihat komentar di /api/olahan/couriers.
+    const loadCouriers = async () => {
+      try {
+        const response = await fetch('/api/olahan/couriers', { cache: 'no-store' });
+        const json: { success: boolean; data?: string[]; message?: string } = await response.json();
+
+        if (!isMounted) return;
+        if (!json.success || !json.data) throw new Error(json.message || 'Gagal mengambil daftar ekspedisi');
+
+        setCourierOptions(json.data);
+      } catch (error: unknown) {
+        if (isMounted) Swal.fire('Error', getErrorMessage(error), 'error');
+      }
+    };
+
     // status=all supaya produk/hadiah nonaktif tetap bisa dipakai memfilter order lama.
     const loadProducts = async () => {
       try {
@@ -359,6 +379,7 @@ export default function OlahanPage() {
 
     void loadUsers();
     void loadWarehouses();
+    void loadCouriers();
     void loadProducts();
     void loadGifts();
 
@@ -563,6 +584,7 @@ export default function OlahanPage() {
           creatorName: creatorFilter,
           warehouseId: warehouseFilter,
           paymentMethod: paymentMethodFilter,
+          courierName: courierFilter,
           productId: productFilter,
           giftName: giftFilter,
           itemMatch,
@@ -596,6 +618,7 @@ export default function OlahanPage() {
           creatorName: creatorFilter,
           warehouseId: warehouseFilter,
           paymentMethod: paymentMethodFilter,
+          courierName: courierFilter,
           productId: productFilter,
           giftName: giftFilter,
           itemMatch,
@@ -637,6 +660,7 @@ export default function OlahanPage() {
     setDraftCreatorFilter(creatorFilter);
     setDraftWarehouseFilter(warehouseFilter);
     setDraftPaymentMethodFilter(paymentMethodFilter);
+    setDraftCourierFilter(courierFilter);
     setDraftProductFilter(productFilter);
     setDraftGiftFilter(giftFilter);
     setDraftItemMatch(itemMatch);
@@ -654,6 +678,7 @@ export default function OlahanPage() {
     setCreatorFilter(draftCreatorFilter);
     setWarehouseFilter(draftWarehouseFilter);
     setPaymentMethodFilter(draftPaymentMethodFilter);
+    setCourierFilter(draftCourierFilter);
     setProductFilter(draftProductFilter);
     setGiftFilter(draftGiftFilter);
     setItemMatch(draftItemMatch);
@@ -667,6 +692,7 @@ export default function OlahanPage() {
     setDraftCreatorFilter([]);
     setDraftWarehouseFilter([]);
     setDraftPaymentMethodFilter([]);
+    setDraftCourierFilter([]);
     setDraftProductFilter([]);
     setDraftGiftFilter([]);
     setDraftItemMatch('all');
@@ -679,6 +705,7 @@ export default function OlahanPage() {
     setCreatorFilter([]);
     setWarehouseFilter([]);
     setPaymentMethodFilter([]);
+    setCourierFilter([]);
     setProductFilter([]);
     setGiftFilter([]);
     setItemMatch('all');
@@ -744,7 +771,7 @@ export default function OlahanPage() {
     label: option.status === 'inactive' ? `${option.product_name} (nonaktif)` : option.product_name,
   }));
   const giftOptions: FilterOption[] = [...new Set(gifts.map((option) => option.gift_name))].map((name) => ({ value: name, label: name }));
-  const activeFilterCount =(startDate ? 1 : 0) + (endDate ? 1 : 0) + statusFilter.length + creatorFilter.length + warehouseFilter.length + paymentMethodFilter.length + productFilter.length + giftFilter.length;
+  const activeFilterCount =(startDate ? 1 : 0) + (endDate ? 1 : 0) + statusFilter.length + creatorFilter.length + warehouseFilter.length + paymentMethodFilter.length + courierFilter.length + productFilter.length + giftFilter.length;
 
   // Sama seperti submenu "Data Pesanan" di sidebar — disediakan juga sebagai dropdown di halaman ini.
   const viewValue = searchParams.get('status') === 'problem'
@@ -1116,7 +1143,7 @@ export default function OlahanPage() {
                   styles={filterSelectStyles}
                 />
               </div>
-              <div className="w-full md:col-span-2">
+              <div className="w-full">
                 <label className="block text-xs font-semibold text-slate-500 mb-1.5">Metode Pembayaran</label>
                 <Select
                   isMulti
@@ -1124,6 +1151,23 @@ export default function OlahanPage() {
                   onChange={(selected) => setDraftPaymentMethodFilter(selected.map((item) => item.value))}
                   options={paymentMethodOptions}
                   placeholder="Semua Metode Pembayaran"
+                  closeMenuOnSelect={false}
+                  components={{ MultiValue: CompactMultiValue }}
+                  menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined}
+                  className="text-sm text-slate-800"
+                  styles={filterSelectStyles}
+                />
+              </div>
+              <div className="w-full">
+                <label className="block text-xs font-semibold text-slate-500 mb-1.5">Ekspedisi</label>
+                <Select
+                  isMulti
+                  value={courierOptions
+                    .filter((option) => draftCourierFilter.includes(option))
+                    .map((option) => ({ value: option, label: option }))}
+                  onChange={(selected) => setDraftCourierFilter(selected.map((item) => item.value))}
+                  options={courierOptions.map((option) => ({ value: option, label: option }))}
+                  placeholder="Semua Ekspedisi"
                   closeMenuOnSelect={false}
                   components={{ MultiValue: CompactMultiValue }}
                   menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined}

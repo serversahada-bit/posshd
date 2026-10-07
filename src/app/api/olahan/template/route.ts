@@ -25,14 +25,15 @@ const toList = (value: FilterValue): string[] => {
   return value ? [value] : [];
 };
 
-type FilterPayload = { startDate?: string; endDate?: string; status?: FilterValue; creatorName?: FilterValue; warehouseId?: FilterValue; paymentMethod?: FilterValue; productId?: FilterValue; giftName?: FilterValue; itemMatch?: string; selectedIds?: string };
+type FilterPayload = { startDate?: string; endDate?: string; status?: FilterValue; creatorName?: FilterValue; warehouseId?: FilterValue; paymentMethod?: FilterValue; courierName?: FilterValue; productId?: FilterValue; giftName?: FilterValue; itemMatch?: string; selectedIds?: string };
 
 const buildCondition = (payload: FilterPayload) => {
-  const { startDate, endDate, status, creatorName, warehouseId, paymentMethod, productId, giftName, itemMatch, selectedIds } = payload;
+  const { startDate, endDate, status, creatorName, warehouseId, paymentMethod, courierName, productId, giftName, itemMatch, selectedIds } = payload;
   const statusList = toList(status);
   const creatorNameList = toList(creatorName);
   const warehouseIdList = toList(warehouseId);
   const paymentMethodList = toList(paymentMethod);
+  const courierNameList = toList(courierName);
   let conditionQuery = '';
   const params: Array<string | number> = [];
 
@@ -79,6 +80,11 @@ const buildCondition = (payload: FilterPayload) => {
     conditionQuery += ` AND warehouse_id IN (${warehouseIdList.map(() => '?').join(',')})`;
     params.push(...warehouseIdList);
   }
+  if (courierNameList.length > 0) {
+    conditionQuery += ` AND courier_name IN (${courierNameList.map(() => '?').join(',')})`;
+    params.push(...courierNameList);
+  }
+
   if (paymentMethodList.length > 0) {
     conditionQuery += ` AND payment_method IN (${paymentMethodList.map(() => '?').join(',')})`;
     params.push(...paymentMethodList);

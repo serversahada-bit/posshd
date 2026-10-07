@@ -68,6 +68,7 @@ export type OrderExportFilters = {
   creatorName?: FilterValue;
   warehouseId?: FilterValue;
   paymentMethod?: FilterValue;
+  courierName?: FilterValue;
   productId?: FilterValue;
   giftName?: FilterValue;
   itemMatch?: string;
@@ -158,6 +159,11 @@ export async function buildOrderExportFilterSummary(
   const paymentMethodList = toList(filters.paymentMethod);
   if (paymentMethodList.length > 0) {
     parts.push(`Metode Bayar: ${paymentMethodList.map((method) => PAYMENT_METHOD_LABELS[method] || method).join(', ')}`);
+  }
+
+  const courierNameList = toList(filters.courierName);
+  if (courierNameList.length > 0) {
+    parts.push(`Ekspedisi: ${courierNameList.join(', ')}`);
   }
 
   const productIdList = toList(filters.productId);

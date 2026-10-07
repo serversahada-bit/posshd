@@ -146,6 +146,7 @@ export default function OlahanPage() {
   const [statusFilter, setStatusFilter] = useState<string[]>(statusParam);
   const [creatorFilter, setCreatorFilter] = useState<string[]>([]);
   const [warehouseFilter, setWarehouseFilter] = useState<string[]>([]);
+  const [courierFilter, setCourierFilter] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Draft copies edited inside the filter modal; only committed to the real filters on "Terapkan".
@@ -154,6 +155,7 @@ export default function OlahanPage() {
   const [draftStatusFilter, setDraftStatusFilter] = useState<string[]>([]);
   const [draftCreatorFilter, setDraftCreatorFilter] = useState<string[]>([]);
   const [draftWarehouseFilter, setDraftWarehouseFilter] = useState<string[]>([]);
+  const [draftCourierFilter, setDraftCourierFilter] = useState<string[]>([]);
 
   // Sync state when searchParams change
   useEffect(() => {
@@ -163,6 +165,7 @@ export default function OlahanPage() {
   const sortBy = sortByParam;
   const [users, setUsers] = useState<UserFilterOption[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseFilterOption[]>([]);
+  const [courierOptions, setCourierOptions] = useState<string[]>([]);
 
   const [bulkStatus, setBulkStatus] = useState('');
   const [selectedIds, setSelectedIds] = useState<{ id: number; source: string }[]>([]);
@@ -181,6 +184,7 @@ export default function OlahanPage() {
       statusFilter.forEach((value) => query.append('status', value));
       creatorFilter.forEach((value) => query.append('creator_name', value));
       warehouseFilter.forEach((value) => query.append('warehouse_id', value));
+      courierFilter.forEach((value) => query.append('courier_name', value));
       if (searchQuery) query.append('search', searchQuery);
       query.append('limit', String(PAGE_SIZE));
       query.append('offset', String(offsetValue));
@@ -205,7 +209,7 @@ export default function OlahanPage() {
         setTotal(null);
       }
     }
-  }, [creatorFilter, endDate, sortBy, startDate, statusFilter, warehouseFilter, searchQuery]);
+  }, [creatorFilter, endDate, sortBy, startDate, statusFilter, warehouseFilter, courierFilter, searchQuery]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -291,8 +295,25 @@ export default function OlahanPage() {
       }
     };
 
+    // Daftar ekspedisi diambil dari nama kurir yang benar-benar tersimpan di order,
+    // bukan dari tabel couriers — lihat komentar di /api/olahan/couriers.
+    const loadCouriers = async () => {
+      try {
+        const response = await fetch('/api/olahan/couriers', { cache: 'no-store' });
+        const json: { success: boolean; data?: string[]; message?: string } = await response.json();
+
+        if (!isMounted) return;
+        if (!json.success || !json.data) throw new Error(json.message || 'Gagal mengambil daftar ekspedisi');
+
+        setCourierOptions(json.data);
+      } catch (error: unknown) {
+        if (isMounted) Swal.fire('Error', getErrorMessage(error), 'error');
+      }
+    };
+
     void loadUsers();
     void loadWarehouses();
+    void loadCouriers();
 
   return () => {
       isMounted = false;
@@ -494,6 +515,7 @@ export default function OlahanPage() {
           status: statusFilter,
           creatorName: creatorFilter,
           warehouseId: warehouseFilter,
+          courierName: courierFilter,
           selectedIds: serializeSelectedIds(),
         }),
       });
@@ -523,6 +545,7 @@ export default function OlahanPage() {
           status: statusFilter,
           creatorName: creatorFilter,
           warehouseId: warehouseFilter,
+          courierName: courierFilter,
           selectedIds: serializeSelectedIds(),
         }),
       });
@@ -560,6 +583,7 @@ export default function OlahanPage() {
     setDraftStatusFilter(statusFilter);
     setDraftCreatorFilter(creatorFilter);
     setDraftWarehouseFilter(warehouseFilter);
+    setDraftCourierFilter(courierFilter);
     setIsFilterModalOpen(true);
   };
 
@@ -573,6 +597,7 @@ export default function OlahanPage() {
     setStatusFilter(draftStatusFilter);
     setCreatorFilter(draftCreatorFilter);
     setWarehouseFilter(draftWarehouseFilter);
+    setCourierFilter(draftCourierFilter);
     setIsFilterModalOpen(false);
   };
 
@@ -582,6 +607,7 @@ export default function OlahanPage() {
     setDraftStatusFilter([]);
     setDraftCreatorFilter([]);
     setDraftWarehouseFilter([]);
+    setDraftCourierFilter([]);
   };
 
   const clearAllFilters = () => {
@@ -590,6 +616,7 @@ export default function OlahanPage() {
     setStatusFilter([]);
     setCreatorFilter([]);
     setWarehouseFilter([]);
+    setCourierFilter([]);
     setSearchQuery('');
   };
 
@@ -646,7 +673,7 @@ export default function OlahanPage() {
   const showProcessingAtColumn = sortBy === 'processing_at';
   const showLastUpdateColumn = sortBy === 'last_update';
   const visibleColumnCount = 8 + (showCreatedAtColumn ? 1 : 0) + (showProcessingAtColumn ? 1 : 0) + (showLastUpdateColumn ? 1 : 0);
-  const activeFilterCount = (startDate ? 1 : 0) + (endDate ? 1 : 0) + statusFilter.length + creatorFilter.length + warehouseFilter.length;
+  const activeFilterCount = (startDate ? 1 : 0) + (endDate ? 1 : 0) + statusFilter.length + creatorFilter.length + warehouseFilter.length + courierFilter.length;
 
   // Sama seperti submenu "Data Lengkap" di sidebar — disediakan juga sebagai dropdown di halaman ini.
   const viewValue = searchParams.get('status') === 'problem'
@@ -664,6 +691,7 @@ export default function OlahanPage() {
     setEndDate('');
     setCreatorFilter([]);
     setWarehouseFilter([]);
+    setCourierFilter([]);
     setSearchQuery('');
     setStatusFilter(value === 'problem' ? ['problem'] : []);
 
@@ -1002,6 +1030,23 @@ export default function OlahanPage() {
                   onChange={(selected) => setDraftWarehouseFilter(selected.map((item) => item.value))}
                   options={warehouses.map((option) => ({ value: String(option.id), label: option.warehouse_name }))}
                   placeholder="Semua Gudang"
+                  closeMenuOnSelect={false}
+                  components={{ MultiValue: CompactMultiValue }}
+                  menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined}
+                  className="text-sm text-slate-800"
+                  styles={filterSelectStyles}
+                />
+              </div>
+              <div className="w-full">
+                <label className="block text-xs font-semibold text-slate-500 mb-1.5">Ekspedisi</label>
+                <Select
+                  isMulti
+                  value={courierOptions
+                    .filter((option) => draftCourierFilter.includes(option))
+                    .map((option) => ({ value: option, label: option }))}
+                  onChange={(selected) => setDraftCourierFilter(selected.map((item) => item.value))}
+                  options={courierOptions.map((option) => ({ value: option, label: option }))}
+                  placeholder="Semua Ekspedisi"
                   closeMenuOnSelect={false}
                   components={{ MultiValue: CompactMultiValue }}
                   menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined}

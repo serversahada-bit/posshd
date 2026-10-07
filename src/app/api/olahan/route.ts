@@ -17,6 +17,7 @@ export async function GET(request: Request) {
     const creatorNameList = searchParams.getAll('creator_name').filter(Boolean);
     const warehouseIdList = searchParams.getAll('warehouse_id').filter(Boolean);
     const paymentMethodList = searchParams.getAll('payment_method').filter(Boolean);
+    const courierNameList = searchParams.getAll('courier_name').filter(Boolean);
     const productIdList = searchParams.getAll('product_id').filter(Boolean);
     const giftNameList = searchParams.getAll('gift_name').filter(Boolean);
     const itemMatchMode = parseItemMatchMode(searchParams.get('item_match'));
@@ -129,6 +130,10 @@ export async function GET(request: Request) {
     if (paymentMethodList.length > 0) {
       conditionQuery += ` AND payment_method IN (${paymentMethodList.map(() => '?').join(',')})`;
       params.push(...paymentMethodList);
+    }
+    if (courierNameList.length > 0) {
+      conditionQuery += ` AND courier_name IN (${courierNameList.map(() => '?').join(',')})`;
+      params.push(...courierNameList);
     }
     const itemFilter = buildOrderItemFilterCondition({ productIds: productIdList, giftNames: giftNameList, matchMode: itemMatchMode },'combined_orders.order_id');
     conditionQuery += itemFilter.conditionQuery;
