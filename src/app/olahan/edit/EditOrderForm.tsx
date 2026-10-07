@@ -319,7 +319,7 @@ export default function EditOrderForm() {
         const targetWarehouseId = availableWarehouseId || fallbackWarehouseId;
 
         Object.entries(originData.rates || {}).forEach(([courierCode, rate]: [string, any]) => {
-          if (!number(rate.price)) return;
+          if (typeof rate.price !== 'number') return;
 
           const matchedCourier = data.couriers.find((item: any) => String(item.courier_name).toUpperCase() === courierCode.toUpperCase())
             || data.couriers.find((item: any) => String(item.courier_name).toUpperCase().includes(courierCode.toUpperCase()));

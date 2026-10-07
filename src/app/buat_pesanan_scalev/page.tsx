@@ -405,7 +405,7 @@ export default function BuatPesananScalevPage() {
     // Kalkulasi fee COD & biaya FF
     let feeCodCalc = 0;
     let biayaFfCalc = shippingCost;
-    if (shippingCost > 0 && data?.ongkirSettings) {
+    if (courierName && data?.ongkirSettings) {
       let discPerc = 0;
       let gudangRp = 0;
       let codPerc = 0;
@@ -550,7 +550,7 @@ export default function BuatPesananScalevPage() {
           const whIdToUse = isAvailable ? intersect[0] : od.warehouse_ids[0];
 
           for (const c in od.rates) {
-            if (od.rates[c].price > 0) {
+            if (typeof od.rates[c].price === 'number') {
               const multi = getShippingWeightMultiplier(c, totals.totalWeight);
               const price = od.rates[c].price * multi;
               allOpts.push({

@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import AsyncCreatableSelect from 'react-select/async-creatable';
 import Swal from 'sweetalert2';
 import { Download, Edit2, FileUp, PencilLine, Plus, Search, Trash2, X } from 'lucide-react';
+import { parseTariffPrice } from '@/lib/shippingPrice';
 
 type CourierOption = {
   courier_name: string | null;
@@ -50,6 +51,26 @@ const originMap: Record<string, string> = {
 };
 
 const getErrorMessage = (error: unknown) => (error instanceof Error ? error.message : 'Terjadi kesalahan');
+
+type SkippedRow = { row: number; reason: string };
+
+const escapeHtml = (value: string) =>
+  value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] || char);
+
+const MAX_SKIPPED_SHOWN = 20;
+
+// Pesan hasil import + daftar baris yang dilewati. Alasan bisa berisi isi sel dari file, jadi di-escape.
+const buildImportResultHtml = (message: string, skipped: SkippedRow[] = []) => {
+  if (skipped.length === 0) return escapeHtml(message);
+
+  const items = skipped
+    .slice(0, MAX_SKIPPED_SHOWN)
+    .map((item) => `<li>Baris ${item.row}: ${escapeHtml(item.reason)}</li>`)
+    .join('');
+  const more = skipped.length > MAX_SKIPPED_SHOWN ? `<li>…dan ${skipped.length - MAX_SKIPPED_SHOWN} baris lainnya</li>` : '';
+
+  return `${escapeHtml(message)}<ul style="text-align:left;margin-top:12px;font-size:13px;max-height:220px;overflow:auto;padding-left:20px;list-style:disc">${items}${more}</ul>`;
+};
 
 export default function PenambahanOngkirPage() {
   const [loading, setLoading] = useState(true);
@@ -335,13 +356,19 @@ export default function PenambahanOngkirPage() {
         body: data,
       });
 
-      const json: { success: boolean; message?: string } = await res.json();
+      const json: { success: boolean; message?: string; skipped?: SkippedRow[] } = await res.json();
 
       if (!json.success) {
-        throw new Error(json.message || 'Gagal mengimpor CSV');
+        Swal.fire({ title: 'Error', html: buildImportResultHtml(json.message || 'Gagal mengimpor CSV', json.skipped), icon: 'error' });
+        return;
       }
 
-      Swal.fire('Berhasil', json.message || 'Import tarif ongkir berhasil.', 'success');
+      const hasSkipped = (json.skipped?.length ?? 0) > 0;
+      Swal.fire({
+        title: 'Berhasil',
+        html: buildImportResultHtml(json.message || 'Import tarif ongkir berhasil.', json.skipped),
+        icon: hasSkipped ? 'warning' : 'success',
+      });
       setIsImportOpen(false);
       setImportFile(null);
       setTruncateTable(false);
@@ -562,7 +589,12 @@ export default function PenambahanOngkirPage() {
                       <span className="px-2 py-1 rounded bg-slate-100 text-slate-700 text-xs font-bold">{row.kurir}</span>
                     </td>
                     <td className="p-4">
-                      <span className="text-emerald-600 font-semibold">Rp {Number(row.harga || 0).toLocaleString('id-ID')}</span>
+                      {(() => {
+                        const price = parseTariffPrice(row.harga);
+                        if (price === null) return <span className="text-red-500 font-semibold text-sm">Tidak tersedia</span>;
+                        if (price === 0) return <span className="text-emerald-600 font-semibold">Gratis</span>;
+                        return <span className="text-emerald-600 font-semibold">Rp {price.toLocaleString('id-ID')}</span>;
+                      })()}
                     </td>
                     <td className="p-4 text-slate-500 text-sm">{row.estimasi || '-'}</td>
                     <td className="p-4">
@@ -639,6 +671,8 @@ export default function PenambahanOngkirPage() {
                   <strong>ID; Kode Asal; Nama Tujuan; Kurir; Harga; Estimasi; OOC</strong>
                   <br />
                   *(Kode Asal akan disimpan di kolom `kode_asal` dan `kode_tujuan`)*
+                  <br />
+                  Harga harus angka 0 ke atas (0 = gratis ongkir). Baris dengan harga minus, &quot;-&quot;, kosong, atau berisi teks akan dilewati.
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-1.5">File CSV <span className="text-red-400">*</span></label>
@@ -789,10 +823,12 @@ export default function PenambahanOngkirPage() {
                   <label className="block text-xs font-semibold text-slate-500 mb-1.5">Harga (Rp) <span className="text-red-400">*</span></label>
                   <input
                     type="number"
+                    min="0"
+                    step="1"
                     value={formData.harga}
                     onChange={(event) => setFormData((prev) => ({ ...prev, harga: event.target.value }))}
                     required
-                    placeholder="Contoh: 15000"
+                    placeholder="Contoh: 15000 (isi 0 untuk gratis ongkir)"
                     className="w-full text-sm border border-slate-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-1 focus:ring-purple-400 focus:border-purple-400"
                   />
                 </div>

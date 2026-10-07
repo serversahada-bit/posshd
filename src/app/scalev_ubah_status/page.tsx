@@ -163,7 +163,7 @@ export default function ScalevUbahStatusPage() {
         Object.entries(json.origins).forEach(([origin, data]) => {
           const typedData = data as {
             warehouse_ids?: number[];
-            rates?: Record<string, { price?: number; estimation?: string; out_of_coverage?: string }>;
+            rates?: Record<string, { price?: number | null; estimation?: string; out_of_coverage?: string }>;
           };
 
           const warehouseIds = typedData.warehouse_ids || [];
@@ -171,7 +171,7 @@ export default function ScalevUbahStatusPage() {
           const warehouse = warehouses.find((item) => item.id === firstWarehouseId);
 
           Object.entries(typedData.rates || {}).forEach(([courierName, rate]) => {
-            if (!rate.price || rate.price <= 0 || !firstWarehouseId) {
+            if (typeof rate.price !== 'number' || !firstWarehouseId) {
               return;
             }
 

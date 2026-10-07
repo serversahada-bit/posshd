@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import prisma from '@/lib/db';
+import { parseTariffPrice, TARIFF_PRICE_RULE } from '@/lib/shippingPrice';
 import * as xlsx from 'xlsx';
 
 export const dynamic = 'force-dynamic';
@@ -67,6 +68,19 @@ const normalizeOriginCode = (value: string) => {
   return compactValue;
 };
 
+type SkippedRow = { row: number; reason: string };
+
+class ImportValidationError extends Error {
+  constructor(message: string, public skipped: SkippedRow[]) {
+    super(message);
+  }
+}
+
+// Batas panjang mengikuti kolom VARCHAR di tabel tarif_pengiriman.
+const MAX_LENGTH = { kode_asal: 50, nama_tujuan: 255, kurir: 20, estimasi: 100, out_of_coverage: 50 };
+
+const cellText = (value: unknown) => (value === null || value === undefined ? '' : String(value).trim());
+
 async function handleImport(formData: FormData) {
   const file = formData.get('file_csv');
   const truncateTable = formData.get('truncate_table') === '1';
@@ -76,13 +90,14 @@ async function handleImport(formData: FormData) {
   }
 
   const buffer = await file.arrayBuffer();
-  const workbook = xlsx.read(buffer, { type: 'buffer' });
+  // raw: true supaya isi CSV dibaca apa adanya — tanpa ini "10.000" terbaca 10 dan "2-3" terbaca tanggal.
+  const workbook = xlsx.read(buffer, { type: 'buffer', raw: true });
   const sheetName = workbook.SheetNames[0];
   const worksheet = workbook.Sheets[sheetName];
-  
+
   // Convert to array of arrays
-  const jsonData = xlsx.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
-  
+  const jsonData = xlsx.utils.sheet_to_json(worksheet, { header: 1, defval: '' }) as unknown[][];
+
   if (jsonData.length <= 1) {
     throw new Error('File tidak memiliki data untuk diimpor.');
   }
@@ -98,48 +113,68 @@ async function handleImport(formData: FormData) {
     estimasi: string;
     out_of_coverage: string;
   }> = [];
+  const skipped: SkippedRow[] = [];
 
-  rows.forEach((parts) => {
+  rows.forEach((parts, index) => {
+    const rowNumber = index + 2; // +1 header, +1 karena baris di file mulai dari 1
+    if (parts.every((cell) => cellText(cell) === '')) return;
+
     // ID, Kode Asal, Nama Tujuan, Kurir, Harga, Estimasi, OOC
-    if (parts.length >= 4) {
-      const p1 = String(parts[1] || '').trim(); // Kode Asal
-      const p2 = String(parts[2] || '').trim(); // Nama Tujuan
-      const p3 = String(parts[3] || '').trim(); // Kurir
-      const p4 = String(parts[4] || '').trim(); // Harga
-      const p5 = parts.length > 5 ? String(parts[5] || '').trim() : ''; // Estimasi
-      const p6 = parts.length > 6 ? String(parts[6] || '').trim() : ''; // OOC
+    const kodeAsal = normalizeOriginCode(cellText(parts[1]));
+    const namaTujuan = cellText(parts[2]);
+    const kurir = cellText(parts[3]).toUpperCase();
+    const rawHarga = cellText(parts[4]);
+    const estimasi = cellText(parts[5]);
+    const outOfCoverage = cellText(parts[6]);
 
-      if (p2 && p3 && p4) {
-        const kodeAsal = normalizeOriginCode(p1);
-        importRows.push({
-          kode_asal: kodeAsal,
-          kode_tujuan: kodeAsal,
-          nama_tujuan: p2,
-          kurir: p3.toUpperCase(),
-          harga: p4,
-          estimasi: p5,
-          out_of_coverage: p6,
-        });
-      }
+    const harga = parseTariffPrice(parts[4]);
+    let reason = '';
+    if (!namaTujuan) reason = 'Nama Tujuan kosong';
+    else if (!kurir) reason = 'Kurir kosong';
+    else if (harga === null) reason = rawHarga ? `harga "${rawHarga}" tidak valid` : 'harga kosong';
+    else if (kodeAsal.length > MAX_LENGTH.kode_asal) reason = `Kode Asal lebih dari ${MAX_LENGTH.kode_asal} karakter`;
+    else if (namaTujuan.length > MAX_LENGTH.nama_tujuan) reason = `Nama Tujuan lebih dari ${MAX_LENGTH.nama_tujuan} karakter`;
+    else if (kurir.length > MAX_LENGTH.kurir) reason = `nama kurir "${kurir}" lebih dari ${MAX_LENGTH.kurir} karakter`;
+    else if (estimasi.length > MAX_LENGTH.estimasi) reason = `Estimasi lebih dari ${MAX_LENGTH.estimasi} karakter`;
+    else if (outOfCoverage.length > MAX_LENGTH.out_of_coverage) reason = `OOC lebih dari ${MAX_LENGTH.out_of_coverage} karakter`;
+
+    if (reason) {
+      skipped.push({ row: rowNumber, reason });
+      return;
     }
+
+    importRows.push({
+      kode_asal: kodeAsal,
+      kode_tujuan: kodeAsal,
+      nama_tujuan: namaTujuan,
+      kurir,
+      harga: String(harga),
+      estimasi,
+      out_of_coverage: outOfCoverage,
+    });
   });
 
   if (importRows.length === 0) {
-    throw new Error('Tidak ada baris valid yang ditemukan dalam file. Pastikan urutan kolom sesuai standar (ID, Kode Asal, Nama Tujuan, Kurir, Harga, Estimasi, OOC).');
+    throw new ImportValidationError(
+      'Tidak ada baris valid yang ditemukan dalam file. Pastikan urutan kolom sesuai standar (ID, Kode Asal, Nama Tujuan, Kurir, Harga, Estimasi, OOC).',
+      skipped,
+    );
   }
 
-  if (truncateTable) {
-    await prisma.tarif_pengiriman.deleteMany();
-  }
+  // Satu transaksi: kalau satu batch gagal, data lama (termasuk yang dikosongkan) tidak ikut hilang.
+  await prisma.$transaction(async (tx) => {
+    if (truncateTable) {
+      await tx.tarif_pengiriman.deleteMany();
+    }
 
-  for (let index = 0; index < importRows.length; index += 250) {
-    const batch = importRows.slice(index, index + 250);
-    await prisma.tarif_pengiriman.createMany({
-      data: batch,
-    });
-  }
+    for (let index = 0; index < importRows.length; index += IMPORT_BATCH_SIZE) {
+      await tx.tarif_pengiriman.createMany({
+        data: importRows.slice(index, index + IMPORT_BATCH_SIZE),
+      });
+    }
+  }, { timeout: 10 * 60 * 1000 });
 
-  return importRows.length;
+  return { count: importRows.length, skipped };
 }
 
 export async function POST(request: NextRequest) {
@@ -151,8 +186,20 @@ export async function POST(request: NextRequest) {
       const action = String(formData.get('action') || '');
 
       if (action === 'import_csv') {
-        const count = await handleImport(formData);
-        return NextResponse.json({ success: true, message: `Berhasil mengimpor ${count} baris tarif ongkir dari CSV.` });
+        try {
+          const { count, skipped } = await handleImport(formData);
+          const skippedNote = skipped.length > 0 ? ` ${skipped.length} baris dilewati karena tidak valid.` : '';
+          return NextResponse.json({
+            success: true,
+            message: `Berhasil mengimpor ${count} baris tarif ongkir.${skippedNote}`,
+            skipped,
+          });
+        } catch (error: unknown) {
+          if (error instanceof ImportValidationError) {
+            return NextResponse.json({ success: false, message: error.message, skipped: error.skipped }, { status: 400 });
+          }
+          throw error;
+        }
       }
 
       return NextResponse.json({ success: false, message: 'Action multipart tidak valid' }, { status: 400 });
@@ -171,12 +218,16 @@ export async function POST(request: NextRequest) {
       const kode_tujuan = kode_asal;
       const nama_tujuan = String(body?.nama_tujuan || '').trim();
       const kurir = String(body?.kurir || '').trim();
-      const harga = String(body?.harga || '').trim();
+      const harga = parseTariffPrice(body?.harga);
       const estimasi = String(body?.estimasi || '').trim();
       const out_of_coverage = String(body?.out_of_coverage || '').trim();
 
-      if (!nama_tujuan || !kurir || !harga) {
+      if (!nama_tujuan || !kurir || String(body?.harga ?? '').trim() === '') {
         return NextResponse.json({ success: false, message: 'Nama Tujuan, Kurir, dan Harga wajib diisi.' }, { status: 400 });
+      }
+
+      if (harga === null) {
+        return NextResponse.json({ success: false, message: TARIFF_PRICE_RULE }, { status: 400 });
       }
 
       await prisma.tarif_pengiriman.create({
@@ -185,7 +236,7 @@ export async function POST(request: NextRequest) {
           kode_tujuan,
           nama_tujuan,
           kurir: kurir.toUpperCase(),
-          harga,
+          harga: String(harga),
           estimasi,
           out_of_coverage,
         },
@@ -200,12 +251,16 @@ export async function POST(request: NextRequest) {
       const kode_tujuan = kode_asal;
       const nama_tujuan = String(body?.nama_tujuan || '').trim();
       const kurir = String(body?.kurir || '').trim();
-      const harga = String(body?.harga || '').trim();
+      const harga = parseTariffPrice(body?.harga);
       const estimasi = String(body?.estimasi || '').trim();
       const out_of_coverage = String(body?.out_of_coverage || '').trim();
 
-      if (!id || !nama_tujuan || !kurir || !harga) {
+      if (!id || !nama_tujuan || !kurir || String(body?.harga ?? '').trim() === '') {
         return NextResponse.json({ success: false, message: 'Nama Tujuan, Kurir, dan Harga wajib diisi.' }, { status: 400 });
+      }
+
+      if (harga === null) {
+        return NextResponse.json({ success: false, message: TARIFF_PRICE_RULE }, { status: 400 });
       }
 
       await prisma.tarif_pengiriman.update({
@@ -215,7 +270,7 @@ export async function POST(request: NextRequest) {
           kode_tujuan,
           nama_tujuan,
           kurir: kurir.toUpperCase(),
-          harga,
+          harga: String(harga),
           estimasi,
           out_of_coverage,
         },

@@ -1,16 +1,11 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { splitRegionParts } from '@/lib/address';
+import { parseTariffPrice } from '@/lib/shippingPrice';
 
 export const dynamic = 'force-dynamic';
 
 const normalizeCourierKey = (value: unknown) => String(value || '').trim().replace(/\s+/g, ' ').toUpperCase();
-
-function parsePriceInt(val: string | null): number {
-  if (val === null || val === '-' || val === '') return 0;
-  const num = parseInt(val.replace(/[^0-9]/g, ''), 10);
-  return isNaN(num) ? 0 : num;
-}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -108,8 +103,9 @@ export async function GET(request: Request) {
       }
 
       if (rates.length > 0) {
-        const couriers = Object.fromEntries(
-          courierDisplayNames.map((name) => [name, { price: 0, estimation: '', out_of_coverage: '' }])
+        // price null = kurir tidak punya tarif sah untuk tujuan ini; 0 = gratis ongkir.
+        const couriers: Record<string, { price: number | null; estimation: string; out_of_coverage: string }> = Object.fromEntries(
+          courierDisplayNames.map((name) => [name, { price: null, estimation: '', out_of_coverage: '' }])
         );
 
         for (const row of rates) {
@@ -117,20 +113,19 @@ export async function GET(request: Request) {
           const kurir = normalizeCourierKey(row.kurir);
           const canonicalCourierKey = courierAliasMap.get(kurir);
           if (canonicalCourierKey && couriers[canonicalCourierKey]) {
-            couriers[canonicalCourierKey].price = parsePriceInt(row.harga);
+            couriers[canonicalCourierKey].price = parseTariffPrice(row.harga);
             couriers[canonicalCourierKey].estimation = row.estimasi || '';
             couriers[canonicalCourierKey].out_of_coverage = row.out_of_coverage || '';
           }
         }
 
-        let cheapest = Number.MAX_SAFE_INTEGER;
+        let cheapest: number | null = null;
         for (const c in couriers) {
           const price = couriers[c].price;
-          if (price > 0 && price < cheapest) {
+          if (price !== null && (cheapest === null || price < cheapest)) {
             cheapest = price;
           }
         }
-        if (cheapest === Number.MAX_SAFE_INTEGER) cheapest = 0;
 
         allOriginRates[origin] = {
           warehouse_ids: originToWarehouseIds[origin],
@@ -141,10 +136,10 @@ export async function GET(request: Request) {
     }
 
     let bestOrigin: string | null = null;
-    let bestPrice = Number.MAX_SAFE_INTEGER;
+    let bestPrice: number | null = null;
     for (const origin in allOriginRates) {
       const price = allOriginRates[origin].cheapest_price;
-      if (price > 0 && price < bestPrice) {
+      if (price !== null && (bestPrice === null || price < bestPrice)) {
         bestPrice = price;
         bestOrigin = origin;
       }
@@ -154,7 +149,7 @@ export async function GET(request: Request) {
       status: 'success',
       origins: allOriginRates,
       best_origin: bestOrigin,
-      best_price: bestPrice === Number.MAX_SAFE_INTEGER ? 0 : bestPrice,
+      best_price: bestPrice,
     });
   } catch (error: any) {
     console.error('Error fetching shipping rates:', error);
