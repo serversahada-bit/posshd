@@ -31,7 +31,12 @@ import {
     Settings,
     Database,
     Wallet,
-    KeyRound
+    KeyRound,
+    Users,
+    Grid3x3,
+    UserPlus,
+    UserX,
+    MapPin
 } from 'lucide-react';
 
 type NavItemProps = {
@@ -113,6 +118,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
     if (userRole === 'admin' || userRole === 'owner') return true;
     const roleMapping: Record<string, string[]> = {
       'dashboard': ['finance', 'cs', 'cs_crm', 'warehouse'],
+      'dashboard_crm': ['cs_crm'],
       'buat_pesanan': ['cs', 'cs_crm'],
       'produk': ['warehouse'],
       'pembelian_terbaru': ['finance'],
@@ -216,6 +222,20 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
                 {hasAccess('olahan') && <NavItem href="/data_lengkap_customer" icon={PackageOpen} label="Data Lengkap" active={isDataLengkapActive} count={problemCount} />}
                 </div>
             </div>
+
+            {hasAccess('dashboard_crm') && (
+            <div className="sidebar__section">
+                <p className="sidebar__section-title">Dashboard CRM</p>
+                <div className="sidebar__list">
+                <NavItem href="/dashboard_crm" icon={Users} label="Dashboard CRM" active={pathname === '/dashboard_crm'} />
+                <NavItem href="/data_kostumer" icon={Database} label="Database Customer" active={pathname === '/data_kostumer'} />
+                <NavItem href="/matrix_customer" icon={Grid3x3} label="Matrix Customer" active={pathname === '/matrix_customer'} />
+                <NavItem href="/customer_baru" icon={UserPlus} label="Customer Baru" active={pathname === '/customer_baru'} />
+                <NavItem href="/customer_berhenti" icon={UserX} label="Customer Berhenti Beli" active={pathname === '/customer_berhenti'} />
+                <NavItem href="/customer_wilayah" icon={MapPin} label="Customer per Wilayah" active={pathname === '/customer_wilayah'} />
+                </div>
+            </div>
+            )}
 
             {hasPengaturanAccess && (
             <div className="sidebar__section">

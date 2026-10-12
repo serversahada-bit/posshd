@@ -29,26 +29,43 @@ type UserFormState = {
   existing_photo_url: string;
 };
 
-const availableMenus = [
-  { key: 'dashboard', label: 'Dashboard' },
-  { key: 'rekap_harian', label: 'Rekap Harian' },
-  { key: 'scalev', label: 'Data Scalev' },
-  { key: 'buat_pesanan', label: 'Buat Pesanan' },
-  { key: 'validasi_fat', label: 'Validasi FAT' },
-  { key: 'olahan', label: 'Data Pesanan' },
-  { key: 'pembelian_terbaru', label: 'Pembelian Terbaru' },
-  { key: 'produk', label: 'Produk' },
-  { key: 'promo', label: 'Promo' },
-  { key: 'advertiser', label: 'Advertiser' },
-  { key: 'sumber_iklan', label: 'Sumber Iklan' },
-  { key: 'hadiah', label: 'Hadiah' },
-  { key: 'bundling', label: 'Bundling' },
-  { key: 'biaya_ongkir', label: 'Biaya Ongkir' },
-  { key: 'penambahan_ekspedisi', label: 'Penambahan Ekspedisi' },
-  { key: 'penambahan_ongkir', label: 'Penambahan Ongkir' },
-  { key: 'gudang', label: 'Gudang' },
-  { key: 'pembayaran', label: 'Pembayaran' },
-] as const;
+// Urutan & kelompok mengikuti sidebar.
+const menuGroups: Array<{ title: string; menus: Array<{ key: string; label: string }> }> = [
+  {
+    title: 'Menu Utama',
+    menus: [
+      { key: 'dashboard', label: 'Dashboard' },
+      { key: 'rekap_harian', label: 'Rekap Harian' },
+      { key: 'scalev', label: 'Data Scalev' },
+      { key: 'buat_pesanan', label: 'Buat Pesanan' },
+      { key: 'validasi_fat', label: 'Validasi FAT' },
+      { key: 'olahan', label: 'Data Pesanan' },
+      { key: 'pembelian_terbaru', label: 'Pembelian Terbaru' },
+    ],
+  },
+  {
+    title: 'Dashboard CRM',
+    menus: [{ key: 'dashboard_crm', label: 'Dashboard CRM' }],
+  },
+  {
+    title: 'Pengaturan',
+    menus: [
+      { key: 'produk', label: 'Produk' },
+      { key: 'promo', label: 'Promo' },
+      { key: 'advertiser', label: 'Advertiser' },
+      { key: 'sumber_iklan', label: 'Sumber Iklan' },
+      { key: 'hadiah', label: 'Hadiah' },
+      { key: 'bundling', label: 'Bundling' },
+      { key: 'biaya_ongkir', label: 'Biaya Ongkir' },
+      { key: 'penambahan_ekspedisi', label: 'Penambahan Ekspedisi' },
+      { key: 'penambahan_ongkir', label: 'Penambahan Ongkir' },
+      { key: 'gudang', label: 'Gudang' },
+      { key: 'pembayaran', label: 'Pembayaran' },
+    ],
+  },
+];
+
+const availableMenus = menuGroups.flatMap((group) => group.menus);
 
 const emptyForm: UserFormState = {
   name: '',
@@ -465,18 +482,25 @@ export default function ManajemenUserPage() {
 
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-700">Akses Menu</label>
-                <div className="grid max-h-48 grid-cols-2 gap-2 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  {availableMenus.map((item) => (
-                    <label key={item.key} className="flex cursor-pointer items-center gap-2 text-sm transition-colors hover:text-purple-600">
-                      <input
-                        type="checkbox"
-                        checked={form.role === 'admin' ? true : form.permissions.includes(item.key)}
-                        disabled={form.role === 'admin'}
-                        onChange={() => togglePermission(item.key)}
-                        className="h-4 w-4 rounded border-slate-300 text-purple-500 focus:ring-purple-500 disabled:cursor-not-allowed"
-                      />
-                      <span>{item.label}</span>
-                    </label>
+                <div className="max-h-64 space-y-3 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  {menuGroups.map((group) => (
+                    <div key={group.title}>
+                      <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">{group.title}</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {group.menus.map((item) => (
+                          <label key={item.key} className="flex cursor-pointer items-center gap-2 text-sm transition-colors hover:text-purple-600">
+                            <input
+                              type="checkbox"
+                              checked={form.role === 'admin' ? true : form.permissions.includes(item.key)}
+                              disabled={form.role === 'admin'}
+                              onChange={() => togglePermission(item.key)}
+                              className="h-4 w-4 rounded border-slate-300 text-purple-500 focus:ring-purple-500 disabled:cursor-not-allowed"
+                            />
+                            <span>{item.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
                 <p className="mt-1 text-xs text-slate-400">Akun Admin otomatis memiliki akses ke semua menu.</p>
