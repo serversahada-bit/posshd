@@ -26,6 +26,7 @@ type UnvalidatedOrder = {
   account_number: string | null;
   reject_reason: string | null;
   validated_by_name: string | null;
+  courier_name: string | null;
   source_table: 'CSO' | 'CSO_AUTO' | 'CRM';
 };
 
@@ -100,11 +101,13 @@ export async function GET() {
               p.account_number,
               p.reject_reason,
               vu.name as validated_by_name,
+              s.courier_name,
               'CSO' as source_table
           FROM orders o
           LEFT JOIN customers c ON o.customer_id = c.id
           INNER JOIN payments p ON o.id = p.order_id
           LEFT JOIN users vu ON vu.id = p.validated_by
+          LEFT JOIN shipments s ON o.id = s.order_id
           WHERE p.payment_status != 'paid' AND (p.payment_method = 'bank_transfer' OR (p.payment_method = 'free' AND p.payment_proof_url IS NOT NULL AND p.payment_proof_url != ''))
 
           UNION ALL
@@ -124,11 +127,13 @@ export async function GET() {
               p.account_number,
               p.reject_reason,
               vu.name as validated_by_name,
+              s.courier_name,
               'CSO_AUTO' as source_table
           FROM orders_cso o
           LEFT JOIN customers c ON o.customer_id = c.id
           INNER JOIN payments_cso p ON o.id = p.order_id
           LEFT JOIN users vu ON vu.id = p.validated_by
+          LEFT JOIN shipments_cso s ON o.id = s.order_id
           WHERE p.payment_status != 'paid' AND (p.payment_method = 'bank_transfer' OR (p.payment_method = 'free' AND p.payment_proof_url IS NOT NULL AND p.payment_proof_url != ''))
 
           UNION ALL
@@ -148,11 +153,13 @@ export async function GET() {
               p.account_number,
               p.reject_reason,
               vu.name as validated_by_name,
+              s.courier_name,
               'CRM' as source_table
           FROM orders_crm o
           LEFT JOIN customers c ON o.customer_id = c.id
           INNER JOIN payments_crm p ON o.id = p.order_id
           LEFT JOIN users vu ON vu.id = p.validated_by
+          LEFT JOIN shipments_crm s ON o.id = s.order_id
           WHERE p.payment_status != 'paid' AND (p.payment_method = 'bank_transfer' OR (p.payment_method = 'free' AND p.payment_proof_url IS NOT NULL AND p.payment_proof_url != ''))
       ) as combined_unvalidated
       ORDER BY created_at DESC

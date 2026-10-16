@@ -44,10 +44,6 @@ const menuGroups: Array<{ title: string; menus: Array<{ key: string; label: stri
     ],
   },
   {
-    title: 'Dashboard CRM',
-    menus: [{ key: 'dashboard_crm', label: 'Dashboard CRM' }],
-  },
-  {
     title: 'Pengaturan',
     menus: [
       { key: 'produk', label: 'Produk' },

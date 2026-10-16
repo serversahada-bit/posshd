@@ -23,6 +23,14 @@ export default function ValidasiPembayaranPage() {
 
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [courierFilter, setCourierFilter] = useState('');
+
+  const NO_COURIER = '__none__';
+  const courierOptions = Array.from(new Set(orders.map((o) => o.courier_name).filter(Boolean))).sort() as string[];
+  const hasOrdersWithoutCourier = orders.some((o) => !o.courier_name);
+  const filteredOrders = !courierFilter
+    ? orders
+    : orders.filter((o) => (courierFilter === NO_COURIER ? !o.courier_name : o.courier_name === courierFilter));
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -208,6 +216,21 @@ export default function ValidasiPembayaranPage() {
           <h1 className="text-2xl font-bold text-slate-800">Validasi FAT</h1>
           <p className="text-sm text-slate-400 mt-1">Halaman untuk memvalidasi pembayaran transfer bank dan approval metode free.</p>
         </div>
+        <div className="flex items-center gap-2">
+          <label htmlFor="courier-filter" className="text-sm font-semibold text-slate-600">Ekspedisi</label>
+          <select
+            id="courier-filter"
+            value={courierFilter}
+            onChange={(e) => setCourierFilter(e.target.value)}
+            className="text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-1 focus:ring-purple-400 focus:border-purple-400"
+          >
+            <option value="">Semua Ekspedisi</option>
+            {courierOptions.map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+            {hasOrdersWithoutCourier && <option value={NO_COURIER}>Tanpa Ekspedisi</option>}
+          </select>
+        </div>
       </div>
 
       {/* Table Section */}
@@ -233,17 +256,19 @@ export default function ValidasiPembayaranPage() {
                 <tr>
                   <td colSpan={canValidate ? 8 : 7} className="text-center py-12 text-slate-400 text-sm">Memuat data...</td>
                 </tr>
-              ) : orders.length === 0 ? (
+              ) : filteredOrders.length === 0 ? (
                 <tr>
                   <td colSpan={canValidate ? 8 : 7} className="text-center py-12 text-slate-400">
                     <div className="flex flex-col items-center justify-center">
                       <Check className="w-10 h-10 text-slate-300 mb-2" />
-                      <p className="text-sm">Tidak ada pembayaran yang perlu divalidasi.</p>
+                      <p className="text-sm">
+                        {orders.length === 0 ? 'Tidak ada pembayaran yang perlu divalidasi.' : 'Tidak ada pembayaran untuk ekspedisi ini.'}
+                      </p>
                     </div>
                   </td>
                 </tr>
               ) : (
-                orders.map((row, idx) => (
+                filteredOrders.map((row, idx) => (
                   <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
                     <td className="p-4 text-slate-400 text-xs">
                       {new Date(row.created_at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}
@@ -256,6 +281,7 @@ export default function ValidasiPembayaranPage() {
                       >
                         {row.order_code}
                       </button>
+                      <p className="text-[11px] text-slate-500 font-medium mt-0.5">{row.courier_name || '-'}</p>
                     </td>
                     <td className="p-4 font-semibold text-slate-700 text-sm">
                       {row.customer_name}
