@@ -7,6 +7,8 @@ import Select from 'react-select';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import WhatsappInput from '@/components/WhatsappInput';
+import { DEFAULT_WA_COUNTRY, parseWaInput } from '@/lib/whatsappNumber';
 
 type InitialData = {
   products: any[];
@@ -128,6 +130,9 @@ export default function BuatPesananScalevPage() {
 
   const [customerName, setCustomerName] = useState('');
   const [whatsappNumber, setWhatsappNumber] = useState('');
+  // Negara WA (kode ISO, default Indonesia); waLocal = nomor tanpa kode negara
+  const [waCountry, setWaCountry] = useState(DEFAULT_WA_COUNTRY);
+  const [waLocal, setWaLocal] = useState('');
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
   const [subdistrict, setSubdistrict] = useState('');
@@ -194,16 +199,19 @@ export default function BuatPesananScalevPage() {
       });
   }, []);
 
-  const handleWaCheck = (wa: string) => {
-    let cleanWa = wa.replace(/[^0-9]/g, '');
-    if (cleanWa.startsWith('08')) {
-      cleanWa = '62' + cleanWa.substring(1);
-    } else if (cleanWa.startsWith('8')) {
-      cleanWa = '62' + cleanWa;
-    }
-    setWhatsappNumber(cleanWa);
+  // Pisahkan nomor jadi kode negara + nomor lokal; whatsappNumber = gabungan keduanya
+  const setWaParts = (wa: string, country: string) => {
+    const parsed = parseWaInput(wa, country);
+    setWaCountry(parsed.country);
+    setWaLocal(parsed.local);
+    setWhatsappNumber(parsed.number);
+    return parsed;
+  };
 
-    if (cleanWa.length < 10) {
+  const handleWaCheck = (wa: string, country: string = waCountry) => {
+    const { local, number: cleanWa } = setWaParts(wa, country);
+
+    if (local.length < 8) {
       setWaCheckMsg({ text: '', type: '' });
       return;
     }
@@ -310,7 +318,7 @@ export default function BuatPesananScalevPage() {
         setNotes((prev) => prev || `Order Scalev: ${order.order_id}${order.store?.name ? ' - ' + order.store.name : ''}`);
 
         if (order.customer?.phone) {
-          handleWaCheck(order.customer.phone);
+          handleWaCheck(String(order.customer.phone), DEFAULT_WA_COUNTRY);
         }
 
         const destQuery = [order.destination_address?.city, order.destination_address?.province].filter(Boolean).join(', ');
@@ -808,7 +816,7 @@ export default function BuatPesananScalevPage() {
           <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-5">
             <div>
               <label className="block text-xs font-medium text-slate-500 mb-1">Nomor WhatsApp <span className="text-red-500">*</span></label>
-              <input required value={whatsappNumber} onChange={e => handleWaCheck(e.target.value)} type="text" className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 focus:border-purple-300 outline-none text-sm placeholder:text-slate-400" placeholder="Contoh: 081234567890" />
+              <WhatsappInput country={waCountry} local={waLocal} onChange={handleWaCheck} />
               {waCheckMsg.text && <p className={`text-[11px] font-medium mt-1 ${waCheckMsg.type}`}>{waCheckMsg.text}</p>}
             </div>
             <div>

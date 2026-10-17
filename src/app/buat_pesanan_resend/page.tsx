@@ -5,6 +5,8 @@ import { Loader2, Plus, Search, ShoppingCart, Trash2, MapPin, Package, Upload, A
 import Swal from 'sweetalert2';
 import Select from 'react-select';
 import { useAuth } from '@/contexts/AuthContext';
+import WhatsappInput from '@/components/WhatsappInput';
+import { DEFAULT_WA_COUNTRY, parseWaInput } from '@/lib/whatsappNumber';
 
 type InitialData = {
   products: any[];
@@ -69,6 +71,9 @@ export default function BuatPesananPage() {
 
   const [customerName, setCustomerName] = useState('');
   const [whatsappNumber, setWhatsappNumber] = useState('');
+  // Negara WA (kode ISO, default Indonesia); waLocal = nomor tanpa kode negara
+  const [waCountry, setWaCountry] = useState(DEFAULT_WA_COUNTRY);
+  const [waLocal, setWaLocal] = useState('');
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
   const [subdistrict, setSubdistrict] = useState('');
@@ -129,21 +134,19 @@ export default function BuatPesananPage() {
       });
   }, []);
 
-  const normalizeWhatsapp = (wa: string) => {
-    let cleanWa = wa.replace(/[^0-9]/g, '');
-    if (cleanWa.startsWith('08')) {
-      cleanWa = '62' + cleanWa.substring(1);
-    } else if (cleanWa.startsWith('8')) {
-      cleanWa = '62' + cleanWa;
-    }
-    return cleanWa;
+  // Pisahkan nomor jadi kode negara + nomor lokal; whatsappNumber = gabungan keduanya
+  const setWaParts = (wa: string, country: string) => {
+    const parsed = parseWaInput(wa, country);
+    setWaCountry(parsed.country);
+    setWaLocal(parsed.local);
+    setWhatsappNumber(parsed.number);
+    return parsed;
   };
 
-  const handleWaCheck = (wa: string) => {
-    const cleanWa = normalizeWhatsapp(wa);
-    setWhatsappNumber(cleanWa);
+  const handleWaCheck = (wa: string, country: string = waCountry) => {
+    const { local, number: cleanWa } = setWaParts(wa, country);
 
-    if (cleanWa.length < 10) {
+    if (local.length < 8) {
       setWaCheckMsg({ text: '', type: '' });
       return;
     }
@@ -583,7 +586,7 @@ export default function BuatPesananPage() {
             <button type="button" onClick={() => {
               setCustomerId('');
               setCustomerName('');
-              setWhatsappNumber('');
+              setWaParts('', DEFAULT_WA_COUNTRY);
               setEmail('');
               setAddress('');
               setSubdistrict('');
@@ -612,7 +615,7 @@ export default function BuatPesananPage() {
                       onClick={() => {
                         setCustomerId(c.id.toString());
                         setCustomerName(c.name);
-                        setWhatsappNumber(normalizeWhatsapp(c.whatsapp_number || ''));
+                        setWaParts(c.whatsapp_number || '', DEFAULT_WA_COUNTRY);
                         setEmail(c.email || '');
                         setAddress(c.address || '');
                         // No space after the comma — matches tarif_pengiriman.nama_tujuan's exact
@@ -649,7 +652,7 @@ export default function BuatPesananPage() {
               <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Nomor WhatsApp <span className="text-red-500">*</span></label>
-                  <input required value={whatsappNumber} onChange={e => handleWaCheck(e.target.value)} type="text" className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-purple-300 focus:border-purple-300 outline-none text-sm placeholder:text-slate-400" placeholder="Contoh: 081234567890" />
+                  <WhatsappInput country={waCountry} local={waLocal} onChange={handleWaCheck} />
                   {waCheckMsg.text && <p className={`text-[11px] font-medium mt-1 ${waCheckMsg.type}`}>{waCheckMsg.text}</p>}
                 </div>
                 <div>
