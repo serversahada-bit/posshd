@@ -2,10 +2,9 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { splitRegionParts } from '@/lib/address';
 import { parseTariffPrice } from '@/lib/shippingPrice';
+import { ORIGINS, ORIGIN_CODES, ORIGIN_TO_WAREHOUSE_IDS, buildCourierAliases, normalizeCourierKey } from '@/lib/shippingRates';
 
 export const dynamic = 'force-dynamic';
-
-const normalizeCourierKey = (value: unknown) => String(value || '').trim().replace(/\s+/g, ' ').toUpperCase();
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -23,25 +22,7 @@ export async function GET(request: Request) {
   const city = region.city || '';
   const district = region.district || '';
 
-  const originToWarehouseIds: Record<string, number[]> = {
-    madiun: [1, 2, 5],
-    bekasi: [3],
-    jakarta: [4],
-  };
-
-  const originCodes: Record<string, string> = {
-    madiun: 'Madiun (39900)',
-    bekasi: 'Bekasi (6573)',
-    jakarta: 'Jakarta (17665)',
-  };
-  const originCodeAliases: Record<string, string[]> = {
-    madiun: ['Madiun (39900)', 'Madiun (39900', '39900'],
-    bekasi: ['Bekasi (6573)', 'Bekasi (6573', '6573'],
-    jakarta: ['Jakarta (17665)', 'Jakarta (17665', '17665'],
-  };
-
   const allOriginRates: Record<string, any> = {};
-  const origins = ['madiun', 'bekasi', 'jakarta'];
 
   try {
     const courierRows = await prisma.couriers.findMany({
@@ -49,37 +30,10 @@ export async function GET(request: Request) {
       orderBy: { courier_name: 'asc' },
     });
 
-    const fallbackCourierNames = ['NINJA', 'JNT', 'JNE', 'POS', 'LION'];
-    const courierAliasMap = new Map<string, string>();
-    const courierDisplayNames: string[] = [];
+    const { courierAliasMap, courierDisplayNames } = buildCourierAliases(courierRows);
 
-    courierRows.forEach((courier) => {
-      const displayName = String(courier.courier_name || courier.code || '').trim();
-      if (!displayName) {
-        return;
-      }
-
-      if (!courierDisplayNames.includes(displayName)) {
-        courierDisplayNames.push(displayName);
-      }
-
-      const normalizedDisplayName = normalizeCourierKey(displayName);
-      const nameKey = normalizeCourierKey(courier.courier_name);
-      const codeKey = normalizeCourierKey(courier.code);
-      if (normalizedDisplayName) courierAliasMap.set(normalizedDisplayName, displayName);
-      if (nameKey) courierAliasMap.set(nameKey, displayName);
-      if (codeKey) courierAliasMap.set(codeKey, displayName);
-    });
-
-    fallbackCourierNames.forEach((name) => {
-      if (!courierDisplayNames.includes(name)) {
-        courierDisplayNames.push(name);
-      }
-      courierAliasMap.set(normalizeCourierKey(name), name);
-    });
-
-    for (const origin of origins) {
-      const kode_asal = originCodes[origin];
+    for (const origin of ORIGINS) {
+      const kode_asal = ORIGIN_CODES[origin];
 
       // Exact match first
       let rates = await prisma.$queryRaw<any[]>`
@@ -128,7 +82,7 @@ export async function GET(request: Request) {
         }
 
         allOriginRates[origin] = {
-          warehouse_ids: originToWarehouseIds[origin],
+          warehouse_ids: ORIGIN_TO_WAREHOUSE_IDS[origin],
           rates: couriers,
           cheapest_price: cheapest,
         };
