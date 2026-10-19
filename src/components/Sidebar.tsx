@@ -126,7 +126,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
     setOpenSubmenu(openSubmenu === menu ? null : menu);
   };
 
-  const isPesananActive = ['/buat_pesanan', '/buat_pesanan_cso', '/buat_pesanan_crm', '/buat_pesanan_resend', '/orders'].includes(pathname);
+  const isPesananActive = ['/buat_pesanan', '/buat_pesanan_cso', '/buat_pesanan_crm', '/buat_pesanan_resend', '/import_pesanan', '/orders'].includes(pathname);
   const isDataPesananActive = pathname === '/olahan';
   const isDataLengkapActive = pathname === '/data_lengkap_customer';
   const isGudangActive = ['/setting_gudang', '/stok_produk', '/stok_hadiah'].includes(pathname) || pathname.startsWith('/inventori');
@@ -189,6 +189,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }: { isOpen
                         <SubmenuItem href="/buat_pesanan_cso" label="CSO" active={pathname === '/buat_pesanan_cso'} />
                         <SubmenuItem href="/buat_pesanan_crm" label="CRM" active={pathname === '/buat_pesanan_crm'} />
                         <SubmenuItem href="/buat_pesanan_resend" label="Resend" active={pathname === '/buat_pesanan_resend'} />
+                        <SubmenuItem href="/import_pesanan" label="Import Excel" active={pathname === '/import_pesanan'} />
                     </div>
                 </div>
                 )}
