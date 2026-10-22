@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import prisma from '@/lib/db';
+import { buildDateTimeRangeCondition } from '@/lib/dateTimeRangeFilter';
 import { hasColumn } from '@/lib/orderTimestamps';
 import { buildOrderItemFilterCondition, parseItemMatchMode } from '@/lib/olahanItemFilter';
 
@@ -13,6 +14,8 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const startDate = searchParams.get('start_date') || '';
     const endDate = searchParams.get('end_date') || '';
+    const startTime = searchParams.get('start_time') || '';
+    const endTime = searchParams.get('end_time') || '';
     const statusList = searchParams.getAll('status').filter(Boolean);
     const creatorNameList = searchParams.getAll('creator_name').filter(Boolean);
     const warehouseIdList = searchParams.getAll('warehouse_id').filter(Boolean);
@@ -106,14 +109,9 @@ export async function GET(request: Request) {
 
     // Filter tanggal mengikuti kolom yang sedang jadi "Tampilan" (created_at/processing_at/last_update),
     // bukan selalu created_at, supaya pencarian tanggal cocok dengan data yang sedang dilihat.
-    if (startDate) {
-      conditionQuery += ` AND DATE(${orderByColumn}) >= ?`;
-      params.push(startDate);
-    }
-    if (endDate) {
-      conditionQuery += ` AND DATE(${orderByColumn}) <= ?`;
-      params.push(endDate);
-    }
+    const dateRange = buildDateTimeRangeCondition(orderByColumn, { startDate, startTime, endDate, endTime });
+    conditionQuery += dateRange.conditionQuery;
+    params.push(...dateRange.params);
     if (statusList.length > 0) {
       conditionQuery += ` AND order_status IN (${statusList.map(() => '?').join(',')})`;
       params.push(...statusList);

@@ -3,6 +3,7 @@ import prisma from '@/lib/db';
 import ExcelJS from 'exceljs';
 import { splitRegionParts } from '@/lib/address';
 import { calculateShippingMultiplier, normalizeCourierKey } from '@/lib/shippingWeight';
+import { buildDateTimeRangeCondition, resolveOrderViewColumn } from '@/lib/dateTimeRangeFilter';
 import { buildOrderExportFilterSummary, getDateRangeFromRows, logExportActivity } from '@/lib/exportLog';
 import { buildOrderItemFilterCondition, parseItemMatchMode } from '@/lib/olahanItemFilter';
 
@@ -150,7 +151,7 @@ const formatNinjaDateTime = (value: unknown): string => {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { startDate, endDate, status, creatorName, warehouseId, paymentMethod, courierName, productId, giftName, itemMatch, selectedIds } = body;
+    const { sort, startDate, startTime, endDate, endTime, status, creatorName, warehouseId, paymentMethod, courierName, productId, giftName, itemMatch, selectedIds } = body;
     const statusList: string[] = Array.isArray(status) ? status.filter(Boolean) : (status ? [status] : []);
     const creatorNameList: string[] = Array.isArray(creatorName) ? creatorName.filter(Boolean) : (creatorName ? [creatorName] : []);
     const warehouseIdList: string[] = Array.isArray(warehouseId) ? warehouseId.filter(Boolean) : (warehouseId ? [warehouseId] : []);
@@ -162,25 +163,31 @@ export async function POST(request: Request) {
     const [
       ordersHasPendingAt,
       ordersHasProcessingAt,
+      ordersHasLastUpdate,
       ordersCsoHasAdvertiser,
       ordersCsoHasAdSource,
       ordersCsoHasPendingAt,
       ordersCsoHasProcessingAt,
+      ordersCsoHasLastUpdate,
       ordersCrmHasAdvertiser,
       ordersCrmHasAdSource,
       ordersCrmHasPendingAt,
       ordersCrmHasProcessingAt,
+      ordersCrmHasLastUpdate,
     ] = await Promise.all([
       hasColumn('orders', 'pending_at'),
       hasColumn('orders', 'processing_at'),
+      hasColumn('orders', 'last_update'),
       hasColumn('orders_cso', 'advertiser_name'),
       hasColumn('orders_cso', 'ad_source'),
       hasColumn('orders_cso', 'pending_at'),
       hasColumn('orders_cso', 'processing_at'),
+      hasColumn('orders_cso', 'last_update'),
       hasColumn('orders_crm', 'advertiser_name'),
       hasColumn('orders_crm', 'ad_source'),
       hasColumn('orders_crm', 'pending_at'),
       hasColumn('orders_crm', 'processing_at'),
+      hasColumn('orders_crm', 'last_update'),
     ]);
 
     const pendingFallback = `CASE
@@ -217,6 +224,10 @@ export async function POST(request: Request) {
     const ordersCrmAdSourceSelect = ordersCrmHasAdSource ? 'o.ad_source' : 'NULL';
     const ordersCrmPendingAtSelect = withPaidAtPreference(ordersCrmRawPendingAtSelect);
     const ordersCrmProcessingAtSelect = ordersCrmHasProcessingAt ? 'o.processing_at' : processingFallback;
+    // Sama dengan kolom "Last Update" di /api/olahan, dipakai saat filter tanggal mengikuti Tampilan Last Update.
+    const lastUpdateSelect = (hasLastUpdate: boolean) => hasLastUpdate ? 'COALESCE(o.last_update, o.updated_at, o.created_at)' : 'COALESCE(o.updated_at, o.created_at)';
+    // Filter tanggal & urutan mengikuti "Tampilan" yang aktif, sama seperti daftar di halaman.
+    const viewColumn = resolveOrderViewColumn(sort);
 
     // Timestamp follows the order's latest "entered pending" moment (pending_at, or created_at
     // for an order that's never left pending) — same signal as "Tanggal Proses", but without the
@@ -256,13 +267,12 @@ export async function POST(request: Request) {
         conditionQuery += ` AND 1=0`;
       }
     } else {
-      if (startDate) {
-        conditionQuery += ` AND DATE(created_at) >= ?`;
-        params.push(startDate);
-      }
-      if (endDate) {
-        conditionQuery += ` AND DATE(created_at) <= ?`;
-        params.push(endDate);
+      const dateRange = buildDateTimeRangeCondition(viewColumn, { startDate, startTime, endDate, endTime });
+      conditionQuery += dateRange.conditionQuery;
+      params.push(...dateRange.params);
+      // Tampilan "Processing At" di /olahan hanya menampilkan pesanan yang sudah pernah diproses.
+      if (viewColumn === 'processing_at') {
+        conditionQuery += ` AND processing_at IS NOT NULL`;
       }
       if (statusList.length > 0) {
         conditionQuery += ` AND order_status IN (${statusList.map(() => '?').join(',')})`;
@@ -294,6 +304,7 @@ export async function POST(request: Request) {
           SELECT 
               o.id, o.order_code, o.customer_id, ${ordersPendingAtSelect} as created_at, ${ordersRawPendingAtSelect} as latest_pending_at, o.updated_at,
               ${ordersProcessingAtSelect} as processing_at,
+              ${lastUpdateSelect(ordersHasLastUpdate)} as last_update,
               o.total_product_price, o.shipping_cost, o.total_payment, o.product_discount, o.other_fee,
               o.additional_shipping_cost,
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
@@ -313,12 +324,14 @@ export async function POST(request: Request) {
           LEFT JOIN shipments s ON o.id = s.order_id
           LEFT JOIN warehouses w ON COALESCE(s.warehouse_id, o.warehouse_id) = w.id
           LEFT JOIN users cu ON cu.id = o.created_by_user_id
+          WHERE (p.payment_method IS NULL OR p.payment_method NOT IN ('bank_transfer', 'free') OR p.payment_status IN ('paid', 'rejected'))
           
           UNION ALL
           
           SELECT 
               o.id, o.order_code, o.customer_id, ${ordersCsoPendingAtSelect} as created_at, ${ordersCsoRawPendingAtSelect} as latest_pending_at, o.updated_at,
               ${ordersCsoProcessingAtSelect} as processing_at,
+              ${lastUpdateSelect(ordersCsoHasLastUpdate)} as last_update,
               o.total_product_price, o.shipping_cost, o.total_payment, o.product_discount, o.other_fee,
               o.additional_shipping_cost,
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
@@ -338,12 +351,14 @@ export async function POST(request: Request) {
           LEFT JOIN shipments_cso s ON o.id = s.order_id
           LEFT JOIN warehouses w ON COALESCE(s.warehouse_id, o.warehouse_id) = w.id
           LEFT JOIN users cu ON cu.id = o.created_by_user_id
+          WHERE (p.payment_method IS NULL OR p.payment_method NOT IN ('bank_transfer', 'free') OR p.payment_status IN ('paid', 'rejected'))
 
           UNION ALL
           
           SELECT 
               o.id, o.order_code, o.customer_id, ${ordersCrmPendingAtSelect} as created_at, ${ordersCrmRawPendingAtSelect} as latest_pending_at, o.updated_at,
               ${ordersCrmProcessingAtSelect} as processing_at,
+              ${lastUpdateSelect(ordersCrmHasLastUpdate)} as last_update,
               o.total_product_price, o.shipping_cost, o.total_payment, o.product_discount, o.other_fee,
               o.additional_shipping_cost,
               o.order_status, o.notes, o.promo_id, o.warehouse_id,
@@ -363,9 +378,10 @@ export async function POST(request: Request) {
           LEFT JOIN shipments_crm s ON o.id = s.order_id
           LEFT JOIN warehouses w ON COALESCE(s.warehouse_id, o.warehouse_id) = w.id
           LEFT JOIN users cu ON cu.id = o.created_by_user_id
+          WHERE (p.payment_method IS NULL OR p.payment_method NOT IN ('bank_transfer', 'free') OR p.payment_status IN ('paid', 'rejected'))
       ) as combined_orders
       WHERE 1=1 ${conditionQuery}
-      ORDER BY created_at DESC
+      ORDER BY ${viewColumn} DESC, created_at DESC
     `;
 
     const orders: any[] = await prisma.$queryRawUnsafe(rawQuery, ...params);
@@ -705,7 +721,7 @@ export async function POST(request: Request) {
     const timestampName = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 
     const fallbackDateRange = getDateRangeFromRows(orders, (order) => order.created_at);
-    const filterSummary = await buildOrderExportFilterSummary({ startDate, endDate, status, creatorName, warehouseId, paymentMethod, courierName, productId, giftName, itemMatch, selectedIds }, fallbackDateRange);
+    const filterSummary = await buildOrderExportFilterSummary({ sort: viewColumn, startDate, startTime, endDate, endTime, status, creatorName, warehouseId, paymentMethod, courierName, productId, giftName, itemMatch, selectedIds }, fallbackDateRange);
     await logExportActivity({
       request,
       target: 'Data Pesanan Olahan',

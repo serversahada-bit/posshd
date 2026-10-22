@@ -166,6 +166,8 @@ export default function OlahanPage() {
 
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
   const [statusFilter, setStatusFilter] = useState<string[]>(statusParam);
   const [creatorFilter, setCreatorFilter] = useState<string[]>([]);
   const [warehouseFilter, setWarehouseFilter] = useState<string[]>([]);
@@ -179,6 +181,8 @@ export default function OlahanPage() {
   // Draft copies edited inside the filter modal; only committed to the real filters on "Terapkan".
   const [draftStartDate, setDraftStartDate] = useState('');
   const [draftEndDate, setDraftEndDate] = useState('');
+  const [draftStartTime, setDraftStartTime] = useState('');
+  const [draftEndTime, setDraftEndTime] = useState('');
   const [draftStatusFilter, setDraftStatusFilter] = useState<string[]>([]);
   const [draftCreatorFilter, setDraftCreatorFilter] = useState<string[]>([]);
   const [draftWarehouseFilter, setDraftWarehouseFilter] = useState<string[]>([]);
@@ -214,6 +218,8 @@ export default function OlahanPage() {
       query.append('sort', sortBy);
       if (startDate) query.append('start_date', startDate);
       if (endDate) query.append('end_date', endDate);
+      if (startDate && startTime) query.append('start_time', startTime);
+      if (endDate && endTime) query.append('end_time', endTime);
       statusFilter.forEach((value) => query.append('status', value));
       creatorFilter.forEach((value) => query.append('creator_name', value));
       warehouseFilter.forEach((value) => query.append('warehouse_id', value));
@@ -246,7 +252,7 @@ export default function OlahanPage() {
         setTotal(null);
       }
     }
-  }, [creatorFilter, endDate, sortBy, startDate, statusFilter, warehouseFilter, paymentMethodFilter, courierFilter, productFilter, giftFilter, itemMatch, searchQuery]);
+  }, [creatorFilter, endDate, endTime, sortBy, startDate, startTime, statusFilter, warehouseFilter, paymentMethodFilter, courierFilter, productFilter, giftFilter, itemMatch, searchQuery]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -578,8 +584,11 @@ export default function OlahanPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          sort: sortBy,
           startDate,
+          startTime,
           endDate,
+          endTime,
           status: statusFilter,
           creatorName: creatorFilter,
           warehouseId: warehouseFilter,
@@ -612,8 +621,11 @@ export default function OlahanPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          sort: sortBy,
           startDate,
+          startTime,
           endDate,
+          endTime,
           status: statusFilter,
           creatorName: creatorFilter,
           warehouseId: warehouseFilter,
@@ -656,6 +668,8 @@ export default function OlahanPage() {
   const openFilterModal = () => {
     setDraftStartDate(startDate);
     setDraftEndDate(endDate);
+    setDraftStartTime(startTime);
+    setDraftEndTime(endTime);
     setDraftStatusFilter(statusFilter);
     setDraftCreatorFilter(creatorFilter);
     setDraftWarehouseFilter(warehouseFilter);
@@ -674,6 +688,8 @@ export default function OlahanPage() {
   const applyFilterModal = () => {
     setStartDate(draftStartDate);
     setEndDate(draftEndDate);
+    setStartTime(draftStartDate ? draftStartTime : '');
+    setEndTime(draftEndDate ? draftEndTime : '');
     setStatusFilter(draftStatusFilter);
     setCreatorFilter(draftCreatorFilter);
     setWarehouseFilter(draftWarehouseFilter);
@@ -688,6 +704,8 @@ export default function OlahanPage() {
   const resetFilterModalDraft = () => {
     setDraftStartDate('');
     setDraftEndDate('');
+    setDraftStartTime('');
+    setDraftEndTime('');
     setDraftStatusFilter([]);
     setDraftCreatorFilter([]);
     setDraftWarehouseFilter([]);
@@ -701,6 +719,8 @@ export default function OlahanPage() {
   const clearAllFilters = () => {
     setStartDate('');
     setEndDate('');
+    setStartTime('');
+    setEndTime('');
     setStatusFilter([]);
     setCreatorFilter([]);
     setWarehouseFilter([]);
@@ -787,6 +807,8 @@ export default function OlahanPage() {
   const handleViewChange = (value: string) => {
     setStartDate('');
     setEndDate('');
+    setStartTime('');
+    setEndTime('');
     setCreatorFilter([]);
     setWarehouseFilter([]);
     setSearchQuery('');
@@ -1083,16 +1105,54 @@ export default function OlahanPage() {
             <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto">
               <div className="w-full md:col-span-2 -mb-1">
                 <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                  Rentang tanggal di bawah memfilter berdasarkan kolom <strong>{dateFilterColumnLabel}</strong> (sesuai "Tampilan" yang sedang aktif di halaman).
+                  Rentang tanggal di bawah memfilter berdasarkan kolom <strong>{dateFilterColumnLabel}</strong> (sesuai "Tampilan" yang sedang aktif di halaman), termasuk untuk Export dan Download Template. Jam bersifat opsional: jika dikosongkan, dihitung dari pukul 00:00 sampai 23:59.
                 </p>
               </div>
               <div className="w-full">
                 <label className="block text-xs font-semibold text-slate-500 mb-1.5">Tanggal Mulai</label>
-                <input type="date" value={draftStartDate} onChange={(event) => setDraftStartDate(event.target.value)} className="w-full border border-slate-300 rounded-lg px-4 py-2 focus:ring-1 focus:ring-blue-500 outline-none text-sm" />
+                <div className="flex gap-2">
+                  <input
+                    type="date"
+                    value={draftStartDate}
+                    onChange={(event) => {
+                      setDraftStartDate(event.target.value);
+                      if (!event.target.value) setDraftStartTime('');
+                    }}
+                    className="min-w-0 flex-1 border border-slate-300 rounded-lg px-4 py-2 focus:ring-1 focus:ring-blue-500 outline-none text-sm"
+                  />
+                  <input
+                    type="time"
+                    aria-label="Jam Mulai"
+                    title={draftStartDate ? 'Jam Mulai (opsional)' : 'Isi tanggal terlebih dahulu'}
+                    value={draftStartTime}
+                    disabled={!draftStartDate}
+                    onChange={(event) => setDraftStartTime(event.target.value)}
+                    className="w-32 shrink-0 border border-slate-300 rounded-lg px-3 py-2 focus:ring-1 focus:ring-blue-500 outline-none text-sm disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed"
+                  />
+                </div>
               </div>
               <div className="w-full">
                 <label className="block text-xs font-semibold text-slate-500 mb-1.5">Tanggal Akhir</label>
-                <input type="date" value={draftEndDate} onChange={(event) => setDraftEndDate(event.target.value)} className="w-full border border-slate-300 rounded-lg px-4 py-2 focus:ring-1 focus:ring-blue-500 outline-none text-sm" />
+                <div className="flex gap-2">
+                  <input
+                    type="date"
+                    value={draftEndDate}
+                    onChange={(event) => {
+                      setDraftEndDate(event.target.value);
+                      if (!event.target.value) setDraftEndTime('');
+                    }}
+                    className="min-w-0 flex-1 border border-slate-300 rounded-lg px-4 py-2 focus:ring-1 focus:ring-blue-500 outline-none text-sm"
+                  />
+                  <input
+                    type="time"
+                    aria-label="Jam Akhir"
+                    title={draftEndDate ? 'Jam Akhir (opsional)' : 'Isi tanggal terlebih dahulu'}
+                    value={draftEndTime}
+                    disabled={!draftEndDate}
+                    onChange={(event) => setDraftEndTime(event.target.value)}
+                    className="w-32 shrink-0 border border-slate-300 rounded-lg px-3 py-2 focus:ring-1 focus:ring-blue-500 outline-none text-sm disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed"
+                  />
+                </div>
               </div>
               <div className="w-full md:col-span-2">
                 <label className="block text-xs font-semibold text-slate-500 mb-1.5">Status Pesanan</label>
