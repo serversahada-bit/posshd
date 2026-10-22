@@ -2,13 +2,17 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { splitRegionParts } from '@/lib/address';
 import { parseTariffPrice } from '@/lib/shippingPrice';
-import { ORIGINS, ORIGIN_CODES, ORIGIN_TO_WAREHOUSE_IDS, buildCourierAliases, normalizeCourierKey } from '@/lib/shippingRates';
+import { ORIGINS, ORIGIN_CODES, buildCourierAliases, normalizeCourierKey } from '@/lib/shippingRates';
+import { loadWarehouseMeta, parseOrderChannel } from '@/lib/warehouseChannel';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const subdistrict = searchParams.get('subdistrict') || '';
+  // Form Buat Pesanan kirim channel=<jenis pesanan> supaya hanya gudang yang aktif untuk jenis itu
+  // yang ditawarkan. Tanpa channel (mis. halaman Scalev Ubah Status) semua gudang ikut.
+  const channel = parseOrderChannel(searchParams.get('channel'));
 
   if (!subdistrict) {
     return NextResponse.json(
@@ -31,9 +35,12 @@ export async function GET(request: Request) {
     });
 
     const { courierAliasMap, courierDisplayNames } = buildCourierAliases(courierRows);
+    const warehouseMeta = (await loadWarehouseMeta(prisma)).filter((row) => !channel || row.order_channels.includes(channel));
 
     for (const origin of ORIGINS) {
       const kode_asal = ORIGIN_CODES[origin];
+      const warehouseIds = warehouseMeta.filter((row) => row.shipping_origin === origin).map((row) => row.id);
+      if (warehouseIds.length === 0) continue;
 
       // Exact match first
       let rates = await prisma.$queryRaw<any[]>`
@@ -82,7 +89,7 @@ export async function GET(request: Request) {
         }
 
         allOriginRates[origin] = {
-          warehouse_ids: ORIGIN_TO_WAREHOUSE_IDS[origin],
+          warehouse_ids: warehouseIds,
           rates: couriers,
           cheapest_price: cheapest,
         };

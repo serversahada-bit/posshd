@@ -11,6 +11,7 @@ import { upsertCustomerAddressSnapshot } from '@/lib/customerAddress';
 import { splitRegionParts } from '@/lib/address';
 import { saveUploadBuffer } from '@/lib/uploadStorage';
 import { resolveWeightMultiplier } from '@/lib/shippingWeight';
+import { assertWarehouseChannel } from '@/lib/warehouseChannel';
 
 export const dynamic = 'force-dynamic';
 
@@ -185,6 +186,7 @@ export async function POST(request: Request) {
     ]);
 
     const orderResult = await prisma.$transaction(async (tx) => {
+      await assertWarehouseChannel(tx, warehouseId, 'cso');
       const orderCode = await generateOrderCode(tx, { warehouseId, courierName, paymentMethod });
       const eventAt = new Date();
       const region = splitRegionParts(subdistrict);

@@ -301,7 +301,7 @@ export default function EditOrderForm() {
 
     setLoadingCouriers(true);
     try {
-      const response = await fetch(`/api/shipping/rates?subdistrict=${encodeURIComponent(form.subdistrict)}`);
+      const response = await fetch(`/api/shipping/rates?subdistrict=${encodeURIComponent(form.subdistrict)}&channel=${data?.warehouse_channel || ''}`);
       const json = await response.json();
 
       if (json.status !== 'success' || !json.origins) {

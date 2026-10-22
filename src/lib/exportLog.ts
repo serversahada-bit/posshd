@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 
+import { formatDateTimeRangeLabel, ORDER_VIEW_COLUMN_LABELS, resolveOrderViewColumn } from '@/lib/dateTimeRangeFilter';
 import prisma from '@/lib/db';
 
 type LogExportParams = {
@@ -62,8 +63,11 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
 };
 
 export type OrderExportFilters = {
+  sort?: string;
   startDate?: string;
+  startTime?: string;
   endDate?: string;
+  endTime?: string;
   status?: FilterValue;
   creatorName?: FilterValue;
   warehouseId?: FilterValue;
@@ -128,7 +132,7 @@ export async function buildOrderExportFilterSummary(
   const matchModeLabel = (selectedCount: number) => (selectedCount > 1 ? (filters.itemMatch === 'any' ? ' (salah satu)' : ' (semua)') : '');
 
   if (filters.startDate || filters.endDate) {
-    parts.push(`Periode: ${filters.startDate || '-'} s/d ${filters.endDate || '-'}`);
+    parts.push(`Periode (${ORDER_VIEW_COLUMN_LABELS[resolveOrderViewColumn(filters.sort)]}): ${formatDateTimeRangeLabel(filters)}`);
   } else if (fallbackDateRange) {
     parts.push(`Data aktual: ${formatDateOnly(fallbackDateRange.start)} s/d ${formatDateOnly(fallbackDateRange.end)} (tanpa filter tanggal)`);
   }

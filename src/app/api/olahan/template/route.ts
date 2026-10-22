@@ -2,8 +2,10 @@ import { NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
 
 import prisma from '@/lib/db';
+import { buildDateTimeRangeCondition, resolveOrderViewColumn, type OrderViewColumn } from '@/lib/dateTimeRangeFilter';
 import { buildOrderExportFilterSummary, getDateRangeFromRows, logExportActivity } from '@/lib/exportLog';
 import { buildOrderItemFilterCondition, parseItemMatchMode } from '@/lib/olahanItemFilter';
+import { getOrderTimestampCapabilities } from '@/lib/orderTimestamps';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,10 +27,32 @@ const toList = (value: FilterValue): string[] => {
   return value ? [value] : [];
 };
 
-type FilterPayload = { startDate?: string; endDate?: string; status?: FilterValue; creatorName?: FilterValue; warehouseId?: FilterValue; paymentMethod?: FilterValue; courierName?: FilterValue; productId?: FilterValue; giftName?: FilterValue; itemMatch?: string; selectedIds?: string };
+type FilterPayload = { sort?: string; startDate?: string; startTime?: string; endDate?: string; endTime?: string; status?: FilterValue; creatorName?: FilterValue; warehouseId?: FilterValue; paymentMethod?: FilterValue; courierName?: FilterValue; productId?: FilterValue; giftName?: FilterValue; itemMatch?: string; selectedIds?: string };
+
+// Kolom waktu hasil query template yang sesuai dengan tiap "Tampilan" di /olahan.
+const viewFilterColumns: Record<OrderViewColumn, string> = {
+  created_at: 'view_created_at',
+  processing_at: 'view_processing_at',
+  last_update: 'view_last_update',
+};
+
+// Rumus kolom Create Order / Processing At / Last Update, disamakan dengan /api/olahan
+// supaya filter tanggal template sama persis dengan daftar yang tampil di halaman.
+const buildViewTimestampSelects = async (tableName: string) => {
+  const capabilities = await getOrderTimestampCapabilities(prisma, tableName);
+  const pendingFallback = `CASE WHEN o.order_status = 'pending' THEN COALESCE(o.updated_at, o.created_at) ELSE o.created_at END`;
+  const processingFallback = `CASE WHEN o.order_status IN ('processing', 'ready_to_ship', 'shipped', 'completed', 'rts', 'problem') THEN COALESCE(o.updated_at, o.created_at) ELSE NULL END`;
+  const pendingAt = capabilities.pendingAt ? 'COALESCE(o.pending_at, o.created_at)' : pendingFallback;
+
+  return {
+    createdAt: `CASE WHEN p.payment_method = 'bank_transfer' AND p.paid_at IS NOT NULL THEN p.paid_at ELSE ${pendingAt} END`,
+    processingAt: capabilities.processingAt ? 'o.processing_at' : processingFallback,
+    lastUpdate: capabilities.lastUpdate ? 'COALESCE(o.last_update, o.updated_at, o.created_at)' : 'COALESCE(o.updated_at, o.created_at)',
+  };
+};
 
 const buildCondition = (payload: FilterPayload) => {
-  const { startDate, endDate, status, creatorName, warehouseId, paymentMethod, courierName, productId, giftName, itemMatch, selectedIds } = payload;
+  const { sort, startDate, startTime, endDate, endTime, status, creatorName, warehouseId, paymentMethod, courierName, productId, giftName, itemMatch, selectedIds } = payload;
   const statusList = toList(status);
   const creatorNameList = toList(creatorName);
   const warehouseIdList = toList(warehouseId);
@@ -60,13 +84,12 @@ const buildCondition = (payload: FilterPayload) => {
     return { conditionQuery, params };
   }
 
-  if (startDate) {
-    conditionQuery += ' AND DATE(created_at) >= ?';
-    params.push(startDate);
-  }
-  if (endDate) {
-    conditionQuery += ' AND DATE(created_at) <= ?';
-    params.push(endDate);
+  const dateRange = buildDateTimeRangeCondition(viewFilterColumns[resolveOrderViewColumn(sort)], { startDate, startTime, endDate, endTime });
+  conditionQuery += dateRange.conditionQuery;
+  params.push(...dateRange.params);
+  // Tampilan "Processing At" di /olahan hanya menampilkan pesanan yang sudah pernah diproses.
+  if (resolveOrderViewColumn(sort) === 'processing_at') {
+    conditionQuery += ' AND view_processing_at IS NOT NULL';
   }
   if (statusList.length > 0) {
     conditionQuery += ` AND order_status IN (${statusList.map(() => '?').join(',')})`;
@@ -101,10 +124,17 @@ export async function POST(request: Request) {
   try {
     const body = await request.json() as FilterPayload;
     const { conditionQuery, params } = buildCondition(body);
+    const viewColumn = viewFilterColumns[resolveOrderViewColumn(body.sort)];
+    const [ordersView, ordersCsoView, ordersCrmView] = await Promise.all([
+      buildViewTimestampSelects('orders'),
+      buildViewTimestampSelects('orders_cso'),
+      buildViewTimestampSelects('orders_crm'),
+    ]);
 
     const query = `
       SELECT * FROM (
         SELECT o.id as order_id, o.order_code, o.order_status, o.created_at, o.warehouse_id, p.payment_method,
+          ${ordersView.createdAt} as view_created_at, ${ordersView.processingAt} as view_processing_at, ${ordersView.lastUpdate} as view_last_update,
           CASE WHEN cu.role = 'admin' THEN NULL ELSE COALESCE(NULLIF(cu.name, ''), NULLIF(cu.email, '')) END as creator_name,
           'CSO' as source_table
         FROM orders o
@@ -115,6 +145,7 @@ export async function POST(request: Request) {
         UNION ALL
 
         SELECT o.id as order_id, o.order_code, o.order_status, o.created_at, o.warehouse_id, p.payment_method,
+          ${ordersCsoView.createdAt} as view_created_at, ${ordersCsoView.processingAt} as view_processing_at, ${ordersCsoView.lastUpdate} as view_last_update,
           CASE WHEN cu.role = 'admin' THEN NULL ELSE COALESCE(NULLIF(cu.name, ''), NULLIF(cu.email, '')) END as creator_name,
           'CSO_AUTO' as source_table
         FROM orders_cso o
@@ -125,6 +156,7 @@ export async function POST(request: Request) {
         UNION ALL
 
         SELECT o.id as order_id, o.order_code, o.order_status, o.created_at, o.warehouse_id, p.payment_method,
+          ${ordersCrmView.createdAt} as view_created_at, ${ordersCrmView.processingAt} as view_processing_at, ${ordersCrmView.lastUpdate} as view_last_update,
           CASE WHEN cu.role = 'admin' THEN NULL ELSE COALESCE(NULLIF(cu.name, ''), NULLIF(cu.email, '')) END as creator_name,
           'CRM' as source_table
         FROM orders_crm o
@@ -133,7 +165,7 @@ export async function POST(request: Request) {
         WHERE (p.payment_method IS NULL OR p.payment_method NOT IN ('bank_transfer', 'free') OR p.payment_status = 'paid')
       ) as combined_orders
       WHERE 1=1 ${conditionQuery}
-      ORDER BY created_at DESC
+      ORDER BY ${viewColumn} DESC, created_at DESC
     `;
 
     const orders = await prisma.$queryRawUnsafe<TemplateRow[]>(query, ...params);
@@ -222,7 +254,7 @@ export async function POST(request: Request) {
     const buffer = await workbook.xlsx.writeBuffer();
 
     const fallbackDateRange = getDateRangeFromRows(orders, (order) => order.created_at);
-    const filterSummary = await buildOrderExportFilterSummary(body, fallbackDateRange);
+    const filterSummary = await buildOrderExportFilterSummary({ ...body, sort: resolveOrderViewColumn(body.sort) }, fallbackDateRange);
     await logExportActivity({
       request,
       target: 'Template Update Status',

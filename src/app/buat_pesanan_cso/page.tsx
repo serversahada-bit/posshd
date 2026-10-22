@@ -120,7 +120,7 @@ export default function BuatPesananPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    fetch('/api/data/initial')
+    fetch('/api/data/initial?channel=cso')
       .then(res => res.json())
       .then(json => {
         if (json.status === 'success') {
@@ -223,8 +223,8 @@ export default function BuatPesananPage() {
       let gudangRp = 0;
       let codPerc = 0;
 
-      const whCodeMap: Record<number, string> = { 1: 'madiun', 2: 'madiun', 5: 'madiun', 3: 'bekasi', 4: 'jakarta' };
-      const selectedOrigin = warehouseId ? whCodeMap[warehouseId] || 'jakarta' : 'jakarta';
+      // Asal ongkir diambil dari pengaturan gudang (Setting Gudang → Asal Ongkir).
+      const selectedOrigin = data.warehouses.find(w => w.id === warehouseId)?.shipping_origin || 'jakarta';
 
       for (const row of data.ongkirSettings) {
         if (row.courier_code?.toUpperCase() === courierName.toUpperCase() && row.origin_code?.toLowerCase() === selectedOrigin.toLowerCase()) {
@@ -350,7 +350,7 @@ export default function BuatPesananPage() {
   const fetchShippingRates = async () => {
     if (!subdistrict) return;
     try {
-      const res = await fetch(`/api/shipping/rates?subdistrict=${subdistrict}`);
+      const res = await fetch(`/api/shipping/rates?subdistrict=${subdistrict}&channel=cso`);
       const json = await res.json();
       if (json.status === 'success' && json.origins) {
         const validWarehouses = getValidWarehouses();

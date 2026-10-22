@@ -11,6 +11,7 @@ import { logOrderCreated } from '@/lib/orderStatusLog';
 import { saveUploadBuffer } from '@/lib/uploadStorage';
 import { getScalevBaseUrl, syncPosOrderToScalev } from '@/lib/scalev';
 import { resolveWeightMultiplier } from '@/lib/shippingWeight';
+import { assertWarehouseChannel } from '@/lib/warehouseChannel';
 
 export const dynamic = 'force-dynamic';
 
@@ -150,6 +151,7 @@ export async function POST(request: Request) {
     // We will do this in a transaction
 
     const orderResult = await prisma.$transaction(async (tx) => {
+      await assertWarehouseChannel(tx, warehouseId, 'akuisisi');
       const region = splitRegionParts(subdistrict);
       const addressSnapshot = await upsertCustomerAddressSnapshot(tx, {
         customerId,

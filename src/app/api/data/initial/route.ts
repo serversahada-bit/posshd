@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
+import { loadWarehouseMeta, parseOrderChannel } from '@/lib/warehouseChannel';
 
 const jsonSafe = <T>(value: T): T => JSON.parse(JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? item.toString() : item)) as T;
 
@@ -13,8 +14,11 @@ type NoPaymentRow = {
   no_shipping_cost: number | boolean | null;
 };
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    // Form Buat Pesanan kirim channel=<jenis pesanan>: hanya gudang yang aktif untuk jenis itu
+    // (beserta stoknya) yang dikirim. Tanpa channel semua gudang ikut.
+    const channel = parseOrderChannel(new URL(request.url).searchParams.get('channel'));
     const products = await prisma.products.findMany({
       where: { status: 'active' },
       select: {
@@ -55,7 +59,8 @@ export async function GET() {
       bundle.product_bundle_items.every((item) => item.products)
     );
 
-    const warehouses = await prisma.warehouses.findMany({
+    const warehouseMeta = new Map((await loadWarehouseMeta(prisma)).map((row) => [row.id, row]));
+    const allWarehouses = await prisma.warehouses.findMany({
       select: {
         id: true,
         warehouse_name: true,
@@ -68,6 +73,10 @@ export async function GET() {
       },
       orderBy: { distance_km: 'asc' },
     });
+    const warehouses = allWarehouses
+      .filter((warehouse) => !channel || warehouseMeta.get(warehouse.id)?.order_channels.includes(channel))
+      .map((warehouse) => ({ ...warehouse, shipping_origin: warehouseMeta.get(warehouse.id)?.shipping_origin ?? null }));
+    const allowedWarehouseIds = new Set(warehouses.map((warehouse) => warehouse.id));
 
     const paymentAccounts = await prisma.payment_accounts.findMany({
       orderBy: { bank_name: 'asc' },
@@ -120,6 +129,7 @@ export async function GET() {
     const giftStockData: Record<number, Record<number, number>> = {};
 
     rawStocks.forEach((st) => {
+      if (!allowedWarehouseIds.has(st.warehouse_id)) return;
       if (!stockData[st.warehouse_id]) {
         stockData[st.warehouse_id] = {};
       }
@@ -127,6 +137,7 @@ export async function GET() {
     });
 
     rawGiftStocks.forEach((st) => {
+      if (!allowedWarehouseIds.has(st.warehouse_id)) return;
       if (!giftStockData[st.warehouse_id]) {
         giftStockData[st.warehouse_id] = {};
       }

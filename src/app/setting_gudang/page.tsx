@@ -5,6 +5,8 @@ import AsyncSelect from 'react-select/async';
 import Image from 'next/image';
 import Swal from 'sweetalert2';
 import { Building2, Edit2, Image as ImageIcon, Plus, Trash2, X } from 'lucide-react';
+import { ORIGINS, ORIGIN_CODES } from '@/lib/shippingRates';
+import { DEFAULT_ORDER_CHANNELS, ORDER_CHANNELS, ORDER_CHANNEL_LABELS, type OrderChannel } from '@/lib/warehouseChannel';
 
 type WarehouseItem = {
   id: number;
@@ -17,6 +19,8 @@ type WarehouseItem = {
   pic_name: string | null;
   distance_km: number | null;
   image_url: string | null;
+  order_channels: OrderChannel[];
+  shipping_origin: string | null;
 };
 
 type WarehousesResponse = {
@@ -66,7 +70,9 @@ export default function SettingGudangPage() {
     address: '',
     subdistrict: '',
     existing_image_url: '',
+    shipping_origin: '',
   });
+  const [orderChannels, setOrderChannels] = useState<OrderChannel[]>(DEFAULT_ORDER_CHANNELS);
 
   useEffect(() => {
     let isMounted = true;
@@ -145,7 +151,9 @@ export default function SettingGudangPage() {
       address: '',
       subdistrict: '',
       existing_image_url: '',
+      shipping_origin: '',
     });
+    setOrderChannels(DEFAULT_ORDER_CHANNELS);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -168,7 +176,9 @@ export default function SettingGudangPage() {
         address: warehouse.address || '',
         subdistrict: region,
         existing_image_url: warehouse.image_url || '',
+        shipping_origin: warehouse.shipping_origin || '',
       });
+      setOrderChannels(warehouse.order_channels || []);
       setSelectedRegion(region ? { value: region, label: region } : null);
       setPreviewUrl(warehouse.image_url || '');
     } else {
@@ -187,7 +197,7 @@ export default function SettingGudangPage() {
     resetForm();
   };
 
-  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setFormData((prev) => ({ ...prev, [event.target.name]: event.target.value }));
   };
 
@@ -229,6 +239,11 @@ export default function SettingGudangPage() {
       return;
     }
 
+    if (!formData.shipping_origin) {
+      Swal.fire('Error', 'Asal Ongkir wajib dipilih.', 'error');
+      return;
+    }
+
     setIsSubmitting(true);
 
     const data = new FormData();
@@ -240,6 +255,8 @@ export default function SettingGudangPage() {
     Object.entries(formData).forEach(([key, value]) => {
       data.append(key, value);
     });
+
+    orderChannels.forEach((channel) => data.append('order_channels', channel));
 
     if (selectedFile) {
       data.append('warehouse_image', selectedFile);
@@ -356,6 +373,22 @@ export default function SettingGudangPage() {
                       <span className="inline-flex items-center px-2 py-1 mt-1 rounded bg-purple-50 text-purple-700 font-mono text-[11px] font-bold">
                         {row.code || '-'}
                       </span>
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {row.order_channels.length > 0 ? (
+                          row.order_channels.map((channel) => (
+                            <span
+                              key={channel}
+                              className={`inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-bold ${channel === 'endorse' ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}
+                            >
+                              {ORDER_CHANNEL_LABELS[channel]}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-bold bg-red-50 text-red-600 border-red-200">
+                            Tidak aktif
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="p-4">
                       <p className="font-medium text-slate-700">{row.pic_name || '-'}</p>
@@ -485,6 +518,46 @@ export default function SettingGudangPage() {
                       onChange={handleInputChange}
                       className="w-full text-sm border border-slate-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-1 focus:ring-purple-400 focus:border-purple-400"
                     />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-xs font-semibold text-slate-500 mb-1.5">Aktif di Buat Pesanan</label>
+                    <div className="flex flex-wrap gap-2">
+                      {ORDER_CHANNELS.map((channel) => {
+                        const checked = orderChannels.includes(channel);
+                        return (
+                          <label
+                            key={channel}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm cursor-pointer transition-colors ${checked ? 'border-purple-300 bg-purple-50 text-purple-700' : 'border-slate-200 text-slate-600 hover:border-purple-200'}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(event) =>
+                                setOrderChannels((prev) =>
+                                  ORDER_CHANNELS.filter((item) => (item === channel ? event.target.checked : prev.includes(item))),
+                                )
+                              }
+                              className="w-4 h-4 rounded border-slate-300 text-purple-600"
+                            />
+                            {ORDER_CHANNEL_LABELS[channel]}
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1.5">
+                      Gudang hanya muncul di form Buat Pesanan yang dicentang. Tanpa centang, gudang tidak muncul di form mana pun.
+                    </p>
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-xs font-semibold text-slate-500 mb-1.5">
+                      Asal Ongkir <span className="text-red-400">*</span>
+                    </label>
+                    <select name="shipping_origin" value={formData.shipping_origin} onChange={handleInputChange} className="w-full text-sm border border-slate-300 rounded-lg px-4 py-2.5 bg-white focus:outline-none focus:ring-1 focus:ring-purple-400 focus:border-purple-400">
+                      <option value="">Pilih asal tarif...</option>
+                      {ORIGINS.map((origin) => (
+                        <option key={origin} value={origin}>{ORIGIN_CODES[origin]}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="col-span-2">
                     <label className="block text-xs font-semibold text-slate-500 mb-1.5">

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import prisma from '@/lib/db';
 import { deleteStoredUpload, saveUploadBuffer } from '@/lib/uploadStorage';
+import { loadWarehouseMeta, parseOrderChannels, parseShippingOrigin } from '@/lib/warehouseChannel';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,9 +38,16 @@ async function uploadImage(file: File | null, existingUrl: string | null = null)
 
 export async function GET() {
   try {
-    const warehouses = await prisma.warehouses.findMany({
-      orderBy: { warehouse_name: 'asc' },
-    });
+    const [rows, meta] = await Promise.all([
+      prisma.warehouses.findMany({ orderBy: { warehouse_name: 'asc' } }),
+      loadWarehouseMeta(prisma),
+    ]);
+    const metaById = new Map(meta.map((row) => [row.id, row]));
+    const warehouses = rows.map((row) => ({
+      ...row,
+      order_channels: metaById.get(row.id)?.order_channels ?? [],
+      shipping_origin: metaById.get(row.id)?.shipping_origin ?? null,
+    }));
 
     return NextResponse.json({ success: true, data: warehouses });
   } catch (error: unknown) {
@@ -66,6 +74,9 @@ export async function POST(request: NextRequest) {
     const fullRegion = String(formData.get('subdistrict') || '').trim();
     const existing_image_url = String(formData.get('existing_image_url') || '') || null;
     const file = formData.get('warehouse_image') as File | null;
+    // Jenis pesanan tempat gudang ini aktif (boleh kosong = gudang tidak muncul di form mana pun).
+    const orderChannels = parseOrderChannels(formData.getAll('order_channels').join(',')).join(',');
+    const shippingOrigin = parseShippingOrigin(formData.get('shipping_origin'));
 
     const parts = fullRegion.split(',').map((part) => part.trim());
     const district = parts[0] || '';
@@ -76,10 +87,13 @@ export async function POST(request: NextRequest) {
       if (!warehouse_name || !code || !fullRegion) {
         return NextResponse.json({ success: false, message: 'Nama Gudang, Kode Gudang, dan Wilayah wajib diisi.' }, { status: 400 });
       }
+      if (!shippingOrigin) {
+        return NextResponse.json({ success: false, message: 'Asal Ongkir wajib dipilih.' }, { status: 400 });
+      }
 
       const imageUrl = file ? await uploadImage(file) : null;
 
-      await prisma.warehouses.create({
+      const created = await prisma.warehouses.create({
         data: {
           warehouse_name,
           code,
@@ -92,6 +106,7 @@ export async function POST(request: NextRequest) {
           image_url: imageUrl,
         },
       });
+      await prisma.$executeRawUnsafe('UPDATE warehouses SET order_channels = ?, shipping_origin = ? WHERE id = ?', orderChannels, shippingOrigin, created.id);
 
       return NextResponse.json({ success: true, message: 'Gudang baru berhasil ditambahkan.' });
     }
@@ -99,6 +114,9 @@ export async function POST(request: NextRequest) {
     if (action === 'update') {
       if (!id || !warehouse_name || !code || !fullRegion) {
         return NextResponse.json({ success: false, message: 'Nama Gudang, Kode Gudang, dan Wilayah wajib diisi.' }, { status: 400 });
+      }
+      if (!shippingOrigin) {
+        return NextResponse.json({ success: false, message: 'Asal Ongkir wajib dipilih.' }, { status: 400 });
       }
 
       const imageUrl = file ? await uploadImage(file, existing_image_url) : existing_image_url;
@@ -117,6 +135,7 @@ export async function POST(request: NextRequest) {
           image_url: imageUrl,
         },
       });
+      await prisma.$executeRawUnsafe('UPDATE warehouses SET order_channels = ?, shipping_origin = ? WHERE id = ?', orderChannels, shippingOrigin, id);
 
       return NextResponse.json({ success: true, message: 'Informasi gudang berhasil diperbarui.' });
     }

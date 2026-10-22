@@ -11,6 +11,7 @@ import { saveUploadBuffer } from '@/lib/uploadStorage';
 import { syncOrderTimestampColumns } from '@/lib/orderTimestamps';
 import { logOrderCreated } from '@/lib/orderStatusLog';
 import { resolveWeightMultiplier } from '@/lib/shippingWeight';
+import { assertWarehouseChannel } from '@/lib/warehouseChannel';
 
 export const dynamic = 'force-dynamic';
 
@@ -175,6 +176,7 @@ export async function POST(request: Request) {
     const pQtys = formData.getAll('item_qty[]') as string[];
 
     const orderResult = await prisma.$transaction(async (tx) => {
+      await assertWarehouseChannel(tx, warehouseId, 'resend');
       const orderCode = await generateOrderCode(tx, { warehouseId, courierName, paymentMethod });
       const region = splitRegionParts(subdistrict);
       const addressSnapshot = await upsertCustomerAddressSnapshot(tx, {
