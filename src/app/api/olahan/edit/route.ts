@@ -9,6 +9,7 @@ import { upsertCustomerAddressSnapshot } from '@/lib/customerAddress';
 import { splitRegionParts } from '@/lib/address';
 import { saveUploadBuffer } from '@/lib/uploadStorage';
 import { resolveWeightMultiplier } from '@/lib/shippingWeight';
+import { assertWarehouseChannel, channelForStoredOrder, getWarehouseIdsForChannel } from '@/lib/warehouseChannel';
 
 export const dynamic = 'force-dynamic';
 
@@ -430,6 +431,11 @@ export async function GET(request: Request) {
     if (!order) return NextResponse.json({ status: 'error', message: 'Pesanan tidak ditemukan' }, { status: 404 });
     if (!order.warehouse_id && shipments[0]?.warehouse_id) order.warehouse_id = shipments[0].warehouse_id;
     if (!order.courier_id && shipments[0]?.courier_name) order.courier_name = shipments[0].courier_name;
+    // Pesanan hanya boleh pindah ke gudang yang aktif untuk jenis pesanannya. Gudang yang sedang
+    // dipakai pesanan tetap ditampilkan walau sudah tidak aktif untuk jenis itu (data lama).
+    const warehouseChannel = channelForStoredOrder(source, order);
+    const channelWarehouseIds = new Set(await getWarehouseIdsForChannel(prisma, warehouseChannel));
+    const channelWarehouses = warehouses.filter((w) => channelWarehouseIds.has(w.id) || Number(w.id) === Number(order.warehouse_id || 0));
     const items = normalizeEditableItems(source, rawItems, products, gifts, bundles);
 
     bundles.forEach((b: any) => {
@@ -469,7 +475,8 @@ export async function GET(request: Request) {
         products,
         gifts,
         bundles,
-        warehouses,
+        warehouses: channelWarehouses,
+        warehouse_channel: warehouseChannel,
         couriers,
         promos,
         advertisers,
@@ -542,7 +549,7 @@ export async function PUT(request: Request) {
     if (!items.length) return NextResponse.json({ status: 'error', message: 'Pesanan harus memiliki minimal satu produk atau hadiah' }, { status: 400 });
 
     const transactionResult = await prisma.$transaction(async (tx) => {
-      const oldOrders = await tx.$queryRawUnsafe<any[]>(`SELECT warehouse_id, customer_id, customer_address_id, order_status, order_code, total_product_price, product_discount, shipping_cost, additional_shipping_cost, shipping_discount, other_fee, total_payment, courier_id, promo_id, notes FROM ${t.orders} WHERE id=? FOR UPDATE`, orderId);
+      const oldOrders = await tx.$queryRawUnsafe<any[]>(`SELECT warehouse_id, order_source, customer_id, customer_address_id, order_status, order_code, total_product_price, product_discount, shipping_cost, additional_shipping_cost, shipping_discount, other_fee, total_payment, courier_id, promo_id, notes FROM ${t.orders} WHERE id=? FOR UPDATE`, orderId);
       const old = oldOrders[0];
       if (!old) throw new Error('Pesanan tidak ditemukan');
       const oldItemsSelect = buildItemsSelectQuery(source, t.items, t.legacyItems, false);
@@ -589,6 +596,9 @@ export async function PUT(request: Request) {
       let courier: any = null;
       if (courierId) courier = (await tx.$queryRawUnsafe<any[]>(`SELECT * FROM couriers WHERE id=?`, courierId))[0];
       const warehouseId = payload.warehouse_id ? Number(payload.warehouse_id) : null;
+      if (warehouseId && warehouseId !== Number(old.warehouse_id || 0)) {
+        await assertWarehouseChannel(tx, warehouseId, channelForStoredOrder(source, old));
+      }
       const roCount = Number(payload.ro_count || 0);
 
       // Send the order back to "pending" for re-review while it's still in the

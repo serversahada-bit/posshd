@@ -4,7 +4,8 @@ import { cookies } from 'next/headers';
 import prisma from '@/lib/db';
 import { parseTariffPrice } from '@/lib/shippingPrice';
 import { calculateShippingMultiplier, getCourierWeightRules } from '@/lib/shippingWeight';
-import { ORIGINS, ORIGIN_CODES, buildCourierAliases, getOriginByWarehouseId, normalizeCourierKey, type ShippingOrigin } from '@/lib/shippingRates';
+import { ORIGINS, ORIGIN_CODES, buildCourierAliases, normalizeCourierKey, type ShippingOrigin } from '@/lib/shippingRates';
+import { ORDER_CHANNEL_LABELS, loadWarehouseMeta, parseOrderChannel, type OrderChannel } from '@/lib/warehouseChannel';
 import {
   IMPORT_COLUMNS,
   MAX_ITEMS_PER_ROW,
@@ -179,7 +180,7 @@ export type ImportContext = {
   products: Map<string, ProductRow>;
   gifts: Map<string, GiftRow>;
   bundles: Map<string, BundleRow>;
-  warehouses: Array<{ id: number; warehouse_name: string; code: string | null }>;
+  warehouses: Array<{ id: number; warehouse_name: string; code: string | null; order_channels: OrderChannel[]; shipping_origin: ShippingOrigin | null }>;
   courierAliasMap: Map<string, string>;
   courierDisplayNames: string[];
   paymentAccounts: Array<{ id: number; bank_name: string | null; account_name: string | null; account_number: string | null }>;
@@ -213,7 +214,7 @@ export async function loadImportContext(orders: ImportOrderInput[]): Promise<Imp
     productRows,
     giftRows,
     bundleRows,
-    warehouses,
+    warehouseRows,
     courierRows,
     paymentAccounts,
     noPaymentMethodRows,
@@ -244,6 +245,14 @@ export async function loadImportContext(orders: ImportOrderInput[]): Promise<Imp
     prisma.warehouse_stock.findMany({ select: { warehouse_id: true, product_id: true, stock: true } }),
     prisma.warehouse_gift_stock.findMany({ select: { warehouse_id: true, gift_id: true, stock: true } }),
   ]);
+
+  // Gudang yang boleh dipakai dicek per baris sesuai Jenis Pesanan (lihat validasi Gudang di bawah).
+  const warehouseMeta = new Map((await loadWarehouseMeta(prisma)).map((row) => [row.id, row]));
+  const warehouses = warehouseRows.map((row) => ({
+    ...row,
+    order_channels: warehouseMeta.get(row.id)?.order_channels ?? [],
+    shipping_origin: warehouseMeta.get(row.id)?.shipping_origin ?? null,
+  }));
 
   const products = new Map<string, ProductRow>();
   const productById = new Map<number, ProductRow>();
@@ -472,6 +481,12 @@ export function resolveImportOrder(input: ImportOrderInput, context: ImportConte
     || context.warehouses.find((row) => normKey(row.code) === warehouseKey);
   if (!fields.warehouse) errors.push('Gudang wajib diisi.');
   else if (!warehouse) errors.push(`Gudang "${fields.warehouse}" tidak ditemukan.`);
+  else {
+    const channel = parseOrderChannel(jenis);
+    if (channel && !warehouse.order_channels.includes(channel)) {
+      errors.push(`Gudang "${warehouse.warehouse_name}" tidak aktif untuk pesanan ${ORDER_CHANNEL_LABELS[channel]}.`);
+    }
+  }
 
   const courierName = context.courierAliasMap.get(normalizeCourierKey(fields.courier)) || '';
   if (!fields.courier) errors.push('Ekspedisi wajib diisi.');
@@ -692,7 +707,7 @@ export function resolveImportOrder(input: ImportOrderInput, context: ImportConte
   // Ongkir dari tarif gudang → tujuan, dikali pengali berat (sama dengan form).
   let shippingCost = 0;
   if (warehouse && courierName && destination) {
-    const origin = getOriginByWarehouseId(warehouse.id);
+    const origin = warehouse.shipping_origin;
     const rates = origin ? context.tariffs.get(`${origin}|${normDestination(destination)}`) : undefined;
     const rate = rates?.[courierName];
 

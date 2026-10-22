@@ -267,7 +267,7 @@ export async function GET(request: Request) {
                 ELSE COALESCE(NULLIF(cu.name, ''), NULLIF(cu.email, ''))
             END as creator_name,
             'CRM' as source_table,
-            'CRM' as source_label
+            CASE WHEN o.order_source = 'Endorse' THEN 'ENDORSE' ELSE 'CRM' END as source_label
         FROM orders_crm o
         LEFT JOIN warehouses w ON w.id = o.warehouse_id
         LEFT JOIN customers c ON o.customer_id = c.id

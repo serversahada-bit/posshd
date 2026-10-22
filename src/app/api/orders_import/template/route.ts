@@ -32,7 +32,10 @@ export async function GET() {
       prisma.products.findMany({ where: { status: 'active' }, select: { product_name: true }, orderBy: { product_name: 'asc' } }),
       prisma.gifts.findMany({ where: { status: 'active' }, select: { gift_name: true }, orderBy: { gift_name: 'asc' } }),
       prisma.product_bundles.findMany({ where: { status: 'active' }, select: { bundle_name: true }, orderBy: { bundle_name: 'asc' } }),
-      prisma.warehouses.findMany({ select: { warehouse_name: true }, orderBy: { distance_km: 'asc' } }),
+      // Hanya gudang yang aktif untuk salah satu jenis pesanan yang bisa di-import (Endorse tidak ada di import).
+      prisma.$queryRawUnsafe<Array<{ warehouse_name: string }>>(
+        "SELECT warehouse_name FROM warehouses WHERE order_channels REGEXP '(^|,)(akuisisi|cso|crm|resend)(,|$)' ORDER BY distance_km ASC",
+      ),
       prisma.couriers.findMany({ select: { courier_name: true, code: true }, orderBy: { courier_name: 'asc' } }),
       prisma.$queryRawUnsafe<Array<{ kurir: string }>>('SELECT DISTINCT kurir FROM tarif_pengiriman WHERE kurir IS NOT NULL'),
       prisma.payment_accounts.findMany({ select: { bank_name: true, account_name: true, account_number: true }, orderBy: { bank_name: 'asc' } }),
