@@ -7,6 +7,7 @@ import { POST as createAkuisisiOrder } from '@/app/api/orders/cso/route';
 import { POST as createCsoOrder } from '@/app/api/orders_cso/route';
 import { POST as createCrmOrder } from '@/app/api/orders_crm/route';
 import { POST as createResendOrder } from '@/app/api/orders_resend/route';
+import { POST as createEndorseOrder } from '@/app/api/orders_endorse/route';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +18,7 @@ const CREATE_ORDER_HANDLERS: Record<OrderImportType, (request: Request) => Promi
   CSO: createCsoOrder,
   CRM: createCrmOrder,
   Resend: createResendOrder,
+  Endorse: createEndorseOrder,
 };
 
 const toText = (value: unknown) => (typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '');

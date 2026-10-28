@@ -42,6 +42,7 @@ const JENIS_BADGE: Record<OrderImportType, string> = {
   CSO: 'bg-blue-100 text-blue-700',
   CRM: 'bg-emerald-100 text-emerald-700',
   Resend: 'bg-amber-100 text-amber-700',
+  Endorse: 'bg-pink-100 text-pink-700',
 };
 
 const COMPRESS_ABOVE_BYTES = 1.5 * 1024 * 1024;
@@ -548,7 +549,7 @@ export default function ImportPesananPage() {
             <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-600">
               <li>Download template. Dropdown di dalamnya sudah berisi produk, gudang, ekspedisi, dll.</li>
               <li><b>1 baris = 1 pesanan</b>. Item ditulis ke kanan, Item 1 s/d Item {MAX_ITEMS_PER_ROW} (maksimal {MAX_ITEMS_PER_ROW} item termasuk hadiah).</li>
-              <li>Pilih <b>Jenis Pesanan</b> (Akuisisi / CSO / CRM / Resend) per pesanan.</li>
+              <li>Pilih <b>Jenis Pesanan</b> (Akuisisi / CSO / CRM / Resend / Endorse) per pesanan.</li>
               <li>Upload file, lalu periksa hasilnya di halaman preview.</li>
               <li>Untuk Transfer &amp; Free, upload bukti sekaligus. Beri nama file sesuai No WhatsApp (mis. <code className="rounded bg-slate-100 px-1">081234567890.jpg</code>) atau nomor baris Excel (mis. <code className="rounded bg-slate-100 px-1">5.jpg</code>) agar otomatis terpasang.</li>
               <li>Tekan <b>Simpan</b>. Pesanan yang gagal bisa diunduh, diperbaiki, lalu diupload ulang.</li>
