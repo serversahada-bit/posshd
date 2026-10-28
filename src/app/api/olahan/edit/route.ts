@@ -609,13 +609,15 @@ export async function PUT(request: Request) {
       // Bank transfer / Free orders are the exception: they don't flip back to Pending here —
       // that happens later, when FAT actually re-approves the payment (see requiresFatRevalidation
       // below and the matching order_status bump in /api/validasi_pembayaran) — since the order
-      // shouldn't look "restarted" until the re-validation is actually resolved.
+      // shouldn't look "restarted" until the re-validation is actually resolved. A Cancelled
+      // bank transfer / Free order stays Cancelled until then, and always goes back to FAT.
       const paymentMethodInput = String(payload.payment_method || '').toLowerCase();
       const oldTotalPayment = Number(old.total_payment ?? 0);
       const newTotalPayment = Number(payload.total_payment);
       const totalChanged = oldTotalPayment !== newTotalPayment;
       const isBankTransferOrFree = paymentMethodInput === 'bank_transfer' || paymentMethodInput === 'free';
       const wasEarlyStage = ['pending', 'processing', 'ready_to_ship', 'problem', 'cancelled'].includes(old.order_status);
+      const wasCancelled = old.order_status === 'cancelled';
       const nextOrderStatus = !isBankTransferOrFree && wasEarlyStage ? 'pending' : old.order_status;
 
       if (source === 'CSO') {
@@ -647,7 +649,7 @@ export async function PUT(request: Request) {
         }
       }
 
-      const pay = await tx.$queryRawUnsafe<any[]>(`SELECT id, payment_status, payment_method, bank_name, account_name, fat_proof_url FROM ${t.payments} WHERE order_id=?`, orderId);
+      const pay = await tx.$queryRawUnsafe<any[]>(`SELECT id, payment_status, payment_method, payment_proof_url, bank_name, account_name, fat_proof_url FROM ${t.payments} WHERE order_id=?`, orderId);
 
       // totalChanged already computed above (used to decide order_status too)
       const oldPaymentStatus = pay.length ? String(pay[0].payment_status || '') : '';
@@ -663,14 +665,24 @@ export async function PUT(request: Request) {
       // form kalau admin sempat memilih status lain (mis. "Paid"). Guard oldPaymentStatus !==
       // 'unpaid' untuk totalChanged/itemsChanged: kalau belum pernah divalidasi sama sekali,
       // ini bukan "revalidasi", biarkan alur validasi FAT normal yang menangani.
+      // Pesanan Cancel selalu dikirim ulang ke FAT apa pun yang diubah — pesanan baru aktif lagi
+      // (Pending) setelah FAT approve.
       const requiresFatRevalidation =
         isBankTransferOrFree &&
-        (wasRejectedByFat || (oldPaymentStatus !== 'unpaid' && (totalChanged || itemsChanged)));
+        (wasCancelled || wasRejectedByFat || (oldPaymentStatus !== 'unpaid' && (totalChanged || itemsChanged)));
       const resolvedPaymentStatus = requiresFatRevalidation ? 'waiting_confirmation' : payload.payment_status;
       const paymentStatusOverridden = requiresFatRevalidation && payload.payment_status !== 'waiting_confirmation';
+      const sentToFatFromCancelled = requiresFatRevalidation && wasCancelled;
 
       if (wasRejectedByFat && payload.payment_method === 'bank_transfer' && !proofUrl) {
         throw new Error('Pesanan ini sebelumnya ditolak FAT. Upload bukti transfer baru sebelum menyimpan ulang.');
+      }
+
+      // FAT butuh bukti untuk direview, dan Free tanpa bukti tidak muncul di antrean Validasi FAT —
+      // jadi wajib ada bukti (lama atau baru), mis. kalau metodenya baru diganti dari COD.
+      if (sentToFatFromCancelled && !proofUrl && !(pay[0]?.payment_proof_url)) {
+        const proofLabel = paymentMethodInput === 'free' ? 'bukti approval' : 'bukti transfer';
+        throw new Error(`Pesanan Cancel ini akan dikirim ulang ke Validasi FAT. Upload ${proofLabel} sebelum menyimpan.`);
       }
 
       if (pay.length) {
@@ -770,6 +782,7 @@ export async function PUT(request: Request) {
           proofUploaded: Boolean(proofUrl),
           idReff: payload.id_reff || null,
         });
+        if (sentToFatFromCancelled) changeLines.push('Pesanan Cancel dikirim ulang ke Validasi FAT');
 
         await tx.activity_logs.create({
           data: {
@@ -782,13 +795,14 @@ export async function PUT(request: Request) {
         });
       }
 
-      return { paymentStatusOverridden };
+      return { paymentStatusOverridden, sentToFatFromCancelled };
     }, { timeout: 30000 });
 
     return NextResponse.json({
       status: 'success',
       message: 'Semua perubahan pesanan berhasil disimpan',
       paymentStatusOverridden: transactionResult.paymentStatusOverridden,
+      sentToFatFromCancelled: transactionResult.sentToFatFromCancelled,
     });
   } catch (error: any) {
     console.error('PUT olahan edit:', error);
