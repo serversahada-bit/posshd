@@ -2,8 +2,11 @@
 
 import { DEFAULT_WA_COUNTRY, WA_COUNTRIES, getWaCountry, parseWaInput, type WaCountryInfo } from '@/lib/whatsappNumber';
 
-export const ORDER_IMPORT_TYPES = ['Akuisisi', 'CSO', 'CRM', 'Resend'] as const;
+export const ORDER_IMPORT_TYPES = ['Akuisisi', 'CSO', 'CRM', 'Resend', 'Endorse'] as const;
 export type OrderImportType = (typeof ORDER_IMPORT_TYPES)[number];
+
+// Endorse memakai form & tabel yang sama dengan CRM (lihat crmOrderCreate.ts), jadi aturan kolomnya sama.
+export const isCrmFamilyType = (jenis: OrderImportType | null) => jenis === 'CRM' || jenis === 'Endorse';
 
 export const ITEM_TYPES = ['Produk', 'Hadiah', 'Bundling'] as const;
 export const PAYMENT_METHOD_OPTIONS = ['COD', 'Transfer', 'Free'] as const;
@@ -55,7 +58,7 @@ export type ImportColumn = {
 type OrderColumn = Omit<ImportColumn, 'key' | 'orderField' | 'itemField' | 'slot'> & { key: OrderFieldKey };
 
 const ORDER_COLUMNS: OrderColumn[] = [
-  { key: 'jenis', header: 'Jenis Pesanan', required: 'ya', width: 14, note: 'Akuisisi / CSO / CRM / Resend.' },
+  { key: 'jenis', header: 'Jenis Pesanan', required: 'ya', width: 14, note: 'Akuisisi / CSO / CRM / Resend / Endorse.' },
   { key: 'customer_name', header: 'Nama Customer', required: 'ya', width: 22, note: 'Nama penerima.' },
   { key: 'whatsapp', header: 'No WhatsApp', required: 'ya', width: 16, note: 'Format teks, mis. 081234567890 atau 6281234567890. Nomor luar negeri: isi kolom Kode Negara, lalu nomor tanpa kode negara (mis. 91234567 untuk Hong Kong). Juga dipakai untuk mencocokkan nama file bukti transfer (mis. 081234567890.jpg).', aliases: ['WhatsApp', 'No WA', 'Nomor WA'] },
   { key: 'whatsapp_country', header: 'Kode Negara', required: 'tidak', width: 22, note: 'Negara nomor WhatsApp. Kosong = Indonesia. Pilih dari daftar, atau isi kode ISO (HK) / kode telepon (852).', aliases: ['Negara', 'Country', 'Kode Negara WA'] },
@@ -69,9 +72,9 @@ const ORDER_COLUMNS: OrderColumn[] = [
   { key: 'payment_method', header: 'Metode Bayar', required: 'ya', width: 13, note: 'COD / Transfer / Free.', aliases: ['Metode Pembayaran'] },
   { key: 'payment_account', header: 'Rekening Tujuan', required: 'kondisional', width: 36, note: 'Wajib jika Transfer. Pilih dari daftar, atau isi nomor rekening / nama bank.', aliases: ['Rekening'] },
   { key: 'free_reason', header: 'Alasan Free', required: 'kondisional', width: 18, note: 'Wajib jika Free.' },
-  { key: 'advertiser', header: 'Advertiser', required: 'kondisional', width: 14, note: 'Wajib untuk Akuisisi & CSO. Diabaikan untuk CRM.' },
-  { key: 'ad_source', header: 'Sumber Iklan', required: 'kondisional', width: 13, note: 'Wajib untuk Akuisisi & CSO. Diabaikan untuk CRM.' },
-  { key: 'ro_count', header: 'Jumlah RO', required: 'tidak', width: 10, note: 'Hanya untuk CSO & CRM. Kosong/0 jika pesanan baru.', aliases: ['RO'] },
+  { key: 'advertiser', header: 'Advertiser', required: 'kondisional', width: 14, note: 'Wajib untuk Akuisisi & CSO. Diabaikan untuk CRM & Endorse.' },
+  { key: 'ad_source', header: 'Sumber Iklan', required: 'kondisional', width: 13, note: 'Wajib untuk Akuisisi & CSO. Diabaikan untuk CRM & Endorse.' },
+  { key: 'ro_count', header: 'Jumlah RO', required: 'tidak', width: 10, note: 'Hanya untuk CSO, CRM & Endorse. Kosong/0 jika pesanan baru.', aliases: ['RO'] },
   { key: 'old_order_id', header: 'ID Order Lama', required: 'tidak', width: 16, note: 'Hanya untuk Resend. Tepat 13 karakter.' },
   { key: 'promo', header: 'Promo', required: 'tidak', width: 18, note: 'Nama promo. Lebih dari satu dipisah koma.' },
   { key: 'product_discount', header: 'Diskon Produk', required: 'tidak', width: 13, note: 'Potongan total pesanan (Rp). Default 0.' },

@@ -12,6 +12,7 @@ import {
   ORDER_FIELD_KEYS,
   ORDER_IMPORT_TYPES,
   PAYMENT_METHOD_LABELS,
+  isCrmFamilyType,
   normalizeHeader,
   resolveImportWhatsapp,
   whatsappVariants,
@@ -523,11 +524,11 @@ export function resolveImportOrder(input: ImportOrderInput, context: ImportConte
     else paymentDetail = noPaymentMethod.method_name;
   }
 
-  // Advertiser & sumber iklan: wajib di form Akuisisi/CSO, tidak dipakai di CRM.
+  // Advertiser & sumber iklan: wajib di form Akuisisi/CSO, tidak dipakai di CRM & Endorse.
   let advertiserName = '';
   let adSource = '';
-  if (jenis === 'CRM') {
-    if (fields.advertiser || fields.ad_source) warnings.push('Advertiser & Sumber Iklan tidak dipakai untuk pesanan CRM, diabaikan.');
+  if (isCrmFamilyType(jenis)) {
+    if (fields.advertiser || fields.ad_source) warnings.push(`Advertiser & Sumber Iklan tidak dipakai untuk pesanan ${jenis}, diabaikan.`);
   } else {
     const advertiserRequired = jenis === 'Akuisisi' || jenis === 'CSO';
     if (fields.advertiser) {
@@ -546,7 +547,7 @@ export function resolveImportOrder(input: ImportOrderInput, context: ImportConte
 
   let roCount = 0;
   if (fields.ro_count) {
-    if (jenis !== 'CSO' && jenis !== 'CRM') warnings.push('Jumlah RO hanya dipakai untuk pesanan CSO & CRM, diabaikan.');
+    if (jenis !== 'CSO' && !isCrmFamilyType(jenis)) warnings.push('Jumlah RO hanya dipakai untuk pesanan CSO, CRM & Endorse, diabaikan.');
     else if (!/^\d+$/.test(fields.ro_count)) errors.push(`Jumlah RO "${fields.ro_count}" harus angka 0 ke atas.`);
     else roCount = Number(fields.ro_count);
   }
@@ -858,11 +859,11 @@ export function buildOrderFormData(form: OrderFormPayload, userId: number, payme
   fd.append('age', form.age);
   fd.append('complaint', form.complaint);
   fd.append('notes', form.notes);
-  if (form.jenis !== 'CRM') {
+  if (!isCrmFamilyType(form.jenis)) {
     fd.append('advertiser_name', form.advertiser_name);
     fd.append('ad_source', form.ad_source);
   }
-  if (form.jenis === 'CSO' || form.jenis === 'CRM') fd.append('ro_count', String(form.ro_count));
+  if (form.jenis === 'CSO' || isCrmFamilyType(form.jenis)) fd.append('ro_count', String(form.ro_count));
   if (form.jenis === 'Resend') fd.append('old_order_id', form.old_order_id);
   fd.append('promo_id', form.promo_id);
 

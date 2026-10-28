@@ -232,7 +232,11 @@ export default function EditOrderForm() {
   const originalOrderStatus = String(data?.order?.order_status || 'pending');
   const isEarlyStageOrder = ['pending', 'processing', 'ready_to_ship', 'problem', 'cancelled'].includes(originalOrderStatus);
   const totalPaymentChangedFromOriginal = number(data?.order?.total_payment) !== total;
-  const willReturnToPending = isEarlyStageOrder && (form.payment_method === 'bank_transfer' ? totalPaymentChangedFromOriginal : true);
+  // A Cancelled bank transfer / Free order always goes back to Validasi FAT on save and stays
+  // Cancelled until FAT approves it — so it needs a proof on file for FAT to review.
+  const isCancelledFatRevalidation = originalOrderStatus === 'cancelled' && (form.payment_method === 'bank_transfer' || form.payment_method === 'free');
+  const requiresProofForCancelled = isCancelledFatRevalidation && !form.payment_proof_url;
+  const willReturnToPending = isEarlyStageOrder && !isCancelledFatRevalidation && (form.payment_method === 'bank_transfer' ? totalPaymentChangedFromOriginal : true);
   const statusPesananLabel = willReturnToPending ? 'Pending' : (orderStatusLabels[originalOrderStatus] || originalOrderStatus);
 
   const stockByWarehouse = useMemo(() => {
@@ -484,8 +488,9 @@ export default function EditOrderForm() {
       return;
     }
 
-    if (requiresNewBankTransferProof && !proof) {
-      await Swal.fire('Perlu Bukti Transfer Baru', 'Pesanan ini sebelumnya ditolak oleh FAT. Upload bukti transfer baru sebelum menyimpan ulang.', 'warning');
+    if (requiresProofForCancelled && !proof) {
+      const proofLabel = form.payment_method === 'free' ? 'bukti approval' : 'bukti transfer';
+      await Swal.fire('Perlu Bukti Pembayaran', `Pesanan Cancel ini akan dikirim ulang ke Validasi FAT. Upload ${proofLabel} sebelum menyimpan.`, 'warning');
       return;
     }
 
@@ -503,7 +508,13 @@ export default function EditOrderForm() {
         throw new Error(json.message || 'Gagal menyimpan');
       }
 
-      if (json.paymentStatusOverridden) {
+      if (json.sentToFatFromCancelled) {
+        await Swal.fire(
+          'Tersimpan, Masuk Validasi FAT',
+          'Perubahan pesanan berhasil disimpan. Karena pesanan ini sebelumnya Cancel, pembayarannya dikirim ulang ke Validasi FAT. Pesanan akan pindah ke halaman Validasi Pembayaran dan kembali ke Data Pesanan sebagai Pending setelah di-approve FAT.',
+          'warning',
+        );
+      } else if (json.paymentStatusOverridden) {
         await Swal.fire(
           'Tersimpan, Perlu Validasi FAT Ulang',
           'Perubahan pesanan berhasil disimpan. Karena ada perubahan pada barang dan/atau total pembayaran pesanan ini, status pembayaran otomatis diatur ke "Menunggu Validasi FAT" — bukan status yang Anda pilih di form.',
@@ -977,7 +988,12 @@ export default function EditOrderForm() {
                 </Field>
                 <Field label="Status Pesanan">
                   <input className={`${inputClass} bg-slate-100 text-slate-500`} value={statusPesananLabel} disabled readOnly />
-                  {willReturnToPending ? (
+                  {isCancelledFatRevalidation ? (
+                    <p className="mt-2 text-xs text-amber-600">
+                      Pesanan Cancel dengan metode {form.payment_method === 'free' ? 'Free' : 'Transfer'} akan dikirim ulang ke Validasi FAT saat disimpan — status menjadi Pending setelah di-approve FAT, atau Problem jika ditolak.
+                      {requiresProofForCancelled ? ` Upload ${form.payment_method === 'free' ? 'bukti approval' : 'bukti transfer'} terlebih dahulu.` : ''}
+                    </p>
+                  ) : willReturnToPending ? (
                     <p className="mt-2 text-xs text-amber-600">
                       {form.payment_method === 'bank_transfer'
                         ? 'Total pembayaran berubah — status pesanan akan disimpan sebagai Pending untuk direview ulang.'
